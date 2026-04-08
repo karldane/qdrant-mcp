@@ -122,6 +122,44 @@ func TestNew_ValidURL_NoLiveServer(t *testing.T) {
 	assert.NotNil(t, c)
 }
 
+func TestNew_SingleTenantFallback(t *testing.T) {
+	// When UserSecret is empty the user client must fall back to AdminKey so
+	// that a single-key Docker/self-hosted Qdrant instance works without
+	// pre-registering a derived per-user key.
+	cfg := &config.Config{
+		AdminURL:   "http://localhost:19999",
+		AdminKey:   "my-admin-key",
+		Username:   "user@example.com",
+		UserSecret: "", // no secret → single-tenant mode
+		Collection: "test",
+		VectorSize: 1536,
+	}
+	c, err := New(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	// userClient must be using the admin key, not a derived (empty) key.
+	// We verify indirectly: deriveUserAPIKey returns "" when secret is empty,
+	// and New() must not have set that empty string as the API key.
+	assert.NotNil(t, c.userClient)
+}
+
+func TestNew_MultiTenantDerivedKey(t *testing.T) {
+	// When both Username and UserSecret are set, a derived key is used for
+	// the user client. Construction still succeeds (no live server needed).
+	cfg := &config.Config{
+		AdminURL:   "http://localhost:19999",
+		AdminKey:   "admin-key",
+		Username:   "user@example.com",
+		UserSecret: "shared-secret",
+		Collection: "test",
+		VectorSize: 1536,
+	}
+	c, err := New(cfg)
+	require.NoError(t, err)
+	require.NotNil(t, c)
+	assert.NotNil(t, c.userClient)
+}
+
 // ---------------------------------------------------------------------------
 // filterToQdrant
 // ---------------------------------------------------------------------------

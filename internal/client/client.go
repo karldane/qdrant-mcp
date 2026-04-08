@@ -46,7 +46,14 @@ func New(cfg *config.Config) (*Client, error) {
 	}
 	c.adminClient = adminClient
 
+	// In multi-tenant mode (QDRANT_USER_SECRET set) each user gets a derived
+	// key that must be pre-registered with the Qdrant instance.  In
+	// single-tenant / self-hosted mode (QDRANT_USER_SECRET empty) there is
+	// only one API key, so the user client falls back to the admin key.
 	userAPIKey := deriveUserAPIKey(cfg.Username, cfg.UserSecret)
+	if userAPIKey == "" {
+		userAPIKey = cfg.AdminKey
+	}
 	userClient, err := qdrant.NewClient(&qdrant.Config{
 		Host:                   host,
 		Port:                   port,
