@@ -9,24 +9,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestDeriveUserAPIKey(t *testing.T) {
-	key := deriveUserAPIKey("user@example.com", "secret123")
-	assert.NotEmpty(t, key)
-	assert.Len(t, key, 64)
-
-	key2 := deriveUserAPIKey("user@example.com", "secret123")
-	assert.Equal(t, key, key2)
-
-	key3 := deriveUserAPIKey("other@example.com", "secret123")
-	assert.NotEqual(t, key, key3)
-
-	empty := deriveUserAPIKey("", "secret123")
-	assert.Empty(t, empty)
-
-	empty2 := deriveUserAPIKey("user@example.com", "")
-	assert.Empty(t, empty2)
-}
-
 func TestParseURL(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -103,7 +85,7 @@ func TestNew_InvalidAdminURL(t *testing.T) {
 	cfg := &config.Config{
 		AdminURL:   "://bad-url",
 		Collection: "test",
-		VectorSize: 1536,
+		VectorSize: 768,
 	}
 	_, err := New(cfg)
 	require.Error(t, err)
@@ -115,44 +97,22 @@ func TestNew_ValidURL_NoLiveServer(t *testing.T) {
 	cfg := &config.Config{
 		AdminURL:   "http://localhost:19999",
 		Collection: "test",
-		VectorSize: 1536,
+		VectorSize: 768,
 	}
 	c, err := New(cfg)
 	require.NoError(t, err)
 	assert.NotNil(t, c)
 }
 
-func TestNew_SingleTenantFallback(t *testing.T) {
-	// When UserSecret is empty the user client must fall back to AdminKey so
-	// that a single-key Docker/self-hosted Qdrant instance works without
-	// pre-registering a derived per-user key.
+func TestNew_ValidURL_UsesAdminKey(t *testing.T) {
+	// v2: user client always uses the admin key (JWT issuance happens in
+	// internal/qdrant, not here). Construction must succeed without a live server.
 	cfg := &config.Config{
 		AdminURL:   "http://localhost:19999",
 		AdminKey:   "my-admin-key",
 		Username:   "user@example.com",
-		UserSecret: "", // no secret → single-tenant mode
 		Collection: "test",
-		VectorSize: 1536,
-	}
-	c, err := New(cfg)
-	require.NoError(t, err)
-	require.NotNil(t, c)
-	// userClient must be using the admin key, not a derived (empty) key.
-	// We verify indirectly: deriveUserAPIKey returns "" when secret is empty,
-	// and New() must not have set that empty string as the API key.
-	assert.NotNil(t, c.userClient)
-}
-
-func TestNew_MultiTenantDerivedKey(t *testing.T) {
-	// When both Username and UserSecret are set, a derived key is used for
-	// the user client. Construction still succeeds (no live server needed).
-	cfg := &config.Config{
-		AdminURL:   "http://localhost:19999",
-		AdminKey:   "admin-key",
-		Username:   "user@example.com",
-		UserSecret: "shared-secret",
-		Collection: "test",
-		VectorSize: 1536,
+		VectorSize: 768,
 	}
 	c, err := New(cfg)
 	require.NoError(t, err)

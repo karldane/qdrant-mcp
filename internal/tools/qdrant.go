@@ -15,6 +15,7 @@ type QdrantClient interface {
 	Scroll(ctx context.Context, limit int, filter map[string]interface{}, offset string) ([]client.ScrollResult, string, error)
 	GetPoint(ctx context.Context, id string) (*client.GetResult, error)
 	DeletePoints(ctx context.Context, ids []string, filter map[string]interface{}) error
+	CollectionInfo(ctx context.Context) (map[string]interface{}, error)
 }
 
 // NewQdrantClient creates and returns a *client.Client, ensuring the

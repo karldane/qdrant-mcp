@@ -2,8 +2,6 @@ package client
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -46,18 +44,14 @@ func New(cfg *config.Config) (*Client, error) {
 	}
 	c.adminClient = adminClient
 
-	// In multi-tenant mode (QDRANT_USER_SECRET set) each user gets a derived
-	// key that must be pre-registered with the Qdrant instance.  In
-	// single-tenant / self-hosted mode (QDRANT_USER_SECRET empty) there is
-	// only one API key, so the user client falls back to the admin key.
-	userAPIKey := deriveUserAPIKey(cfg.Username, cfg.UserSecret)
-	if userAPIKey == "" {
-		userAPIKey = cfg.AdminKey
-	}
+	// v2: user client always uses the admin key.
+	// (Scoped JWT is issued in internal/qdrant and used by main.go;
+	// this shim client exists only for the lower-level helpers such as
+	// filterToQdrant and pointIDToString, which are tested independently.)
 	userClient, err := qdrant.NewClient(&qdrant.Config{
 		Host:                   host,
 		Port:                   port,
-		APIKey:                 userAPIKey,
+		APIKey:                 cfg.AdminKey,
 		UseTLS:                 useTLS,
 		SkipCompatibilityCheck: true,
 	})
@@ -92,14 +86,6 @@ func parseURL(rawURL string) (host string, port int, useTLS bool, err error) {
 		}
 	}
 	return host, port, useTLS, nil
-}
-
-func deriveUserAPIKey(username, secret string) string {
-	if username == "" || secret == "" {
-		return ""
-	}
-	hash := sha256.Sum256([]byte(username + secret))
-	return hex.EncodeToString(hash[:])
 }
 
 func (c *Client) EnsureCollection(ctx context.Context) error {
@@ -293,6 +279,43 @@ type GetResult struct {
 	ID      string
 	Vector  []float32
 	Payload map[string]interface{}
+}
+
+// CollectionInfo returns basic info about the collection (point count, vector
+// size, index status) as a map that tools can serialise to JSON.
+func (c *Client) CollectionInfo(ctx context.Context) (map[string]interface{}, error) {
+	info, err := c.userClient.GetCollectionInfo(ctx, c.collection)
+	if err != nil {
+		return nil, err
+	}
+
+	result := map[string]interface{}{
+		"collection": c.collection,
+	}
+
+	if cs := info.GetStatus(); cs != 0 {
+		result["status"] = cs.String()
+	}
+
+	if config := info.GetConfig(); config != nil {
+		if params := config.GetParams(); params != nil {
+			if vc := params.GetVectorsConfig(); vc != nil {
+				if vp := vc.GetParams(); vp != nil {
+					result["vector_size"] = vp.GetSize()
+					result["distance"] = vp.GetDistance().String()
+				}
+			}
+		}
+	}
+
+	if pInfo := info.GetPointsCount(); pInfo != 0 {
+		result["points_count"] = pInfo
+	}
+	if iInfo := info.GetIndexedVectorsCount(); iInfo != 0 {
+		result["indexed_vectors_count"] = iInfo
+	}
+
+	return result, nil
 }
 
 // filterToQdrant converts a simple key=value map into Qdrant filter conditions.

@@ -7,11 +7,15 @@ Practical reference for running, configuring, and calling the qdrant-mcp backend
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Configuration Reference](#configuration-reference)
+- [Authentication Model](#authentication-model)
+- [Embedding Providers](#embedding-providers)
 - [Running the Server](#running-the-server)
 - [Tool Reference](#tool-reference)
   - [Core CRUD](#core-crud)
   - [Agent Memory](#agent-memory)
+  - [Sessions](#sessions)
   - [Cache](#cache)
+  - [Admin / Diagnostics](#admin--diagnostics)
 - [MCP Bridge Integration](#mcp-bridge-integration)
 - [Readonly Mode](#readonly-mode)
 - [Testing](#testing)
@@ -22,14 +26,14 @@ Practical reference for running, configuring, and calling the qdrant-mcp backend
 
 | Requirement | Version |
 |-------------|---------|
-| Go          | 1.25+   |
-| Qdrant      | 1.x (gRPC port 6334 must be reachable) |
+| Go          | 1.21+   |
+| Qdrant      | 1.9+ (gRPC port 6334 must be reachable; JWT RBAC requires 1.9+) |
 
 ---
 
 ## Quick Start
 
-### 1. Start Qdrant
+### 1. Start Qdrant + Ollama
 
 ```bash
 cd docker
@@ -38,33 +42,34 @@ cp .env.example .env
 docker compose up -d
 ```
 
-Qdrant will be available at:
-- gRPC: `localhost:6334` (used by this server)
-- REST + Web UI: `http://localhost:6333`
+This starts:
+- **Qdrant** at `localhost:6333` (REST/UI) and `localhost:6334` (gRPC) with JWT RBAC enabled
+- **Ollama** at `localhost:11434` with `nomic-embed-text` pulled automatically
 
 ### 2. Build the server
 
 ```bash
-# From repo root
-make          # downloads deps + builds ./qdrant-mcp binary
-```
-
-Or install directly:
-
-```bash
-go install github.com/karldane/qdrant-mcp@latest
+go build -o qdrant-mcp .
 ```
 
 ### 3. Run the server
 
 ```bash
-export QDRANT_ADMIN_URL="http://localhost:6334"
+export QDRANT_ADMIN_URL="http://localhost:6333"
 export QDRANT_ADMIN_KEY="your-api-key"
-export QDRANT_COLLECTION="my_collection"
+export QDRANT_USERNAME="alice@example.com"
+export QDRANT_COLLECTION="alice_at_example_com"
 ./qdrant-mcp
 ```
 
 The server communicates over **stdio** using the MCP protocol. It is designed to be spawned by the MCP Bridge, not run interactively.
+
+On startup the server will:
+1. Provision the collection if it does not exist
+2. Create required payload indexes
+3. Issue a scoped JWT for the user's collection
+4. Ping Ollama (or your configured provider) to verify embeddings are available
+5. Begin serving MCP tools
 
 ---
 
@@ -72,60 +77,139 @@ The server communicates over **stdio** using the MCP protocol. It is designed to
 
 All options can be set via environment variable or CLI flag. CLI flags override environment variables.
 
-| Environment Variable   | CLI Flag          | Default | Description |
-|------------------------|-------------------|---------|-------------|
-| `QDRANT_ADMIN_URL`     | `--admin-url`     | —       | Qdrant server URL, e.g. `http://localhost:6334` (**required**) |
-| `QDRANT_ADMIN_KEY`     | `--admin-key`     | —       | Admin API key for collection management |
-| `QDRANT_USER_SECRET`   | `--user-secret`   | —       | Secret for deriving per-user API keys |
-| `QDRANT_USERNAME`      | `--username`      | —       | Username for the current session |
-| `QDRANT_COLLECTION`    | `--collection`    | —       | Collection to use for all operations |
-| `QDRANT_VECTOR_SIZE`   | `--vector-size`   | `1536`  | Vector dimensions — must match your embedding model |
-| `QDRANT_TIMEOUT_SECONDS` | `--timeout`     | `30`    | Request timeout in seconds |
-| —                      | `--readonly`      | off     | Disable all mutating tools |
-| —                      | `--log-json`      | off     | Emit structured JSON logs to stderr |
+| Environment Variable     | CLI Flag               | Default                        | Required | Description |
+|--------------------------|------------------------|--------------------------------|----------|-------------|
+| `QDRANT_ADMIN_URL`       | `--admin-url`          | —                              | **Yes**  | Qdrant base URL, e.g. `http://localhost:6333` |
+| `QDRANT_ADMIN_KEY`       | `--admin-key`          | —                              | **Yes**  | Admin API key; also the JWT signing secret |
+| `QDRANT_USERNAME`        | `--username`           | —                              | **Yes**  | User identifier (email); injected via `{{users.email}}` |
+| `QDRANT_COLLECTION`      | `--collection`         | —                              | **Yes**  | Collection name; injected via `{{users.email\|sanitised}}` |
+| `QDRANT_VECTOR_SIZE`     | `--vector-size`        | `768`                          | No       | Must match your embedding model |
+| `QDRANT_TIMEOUT_SECONDS` | `--timeout`            | `30`                           | No       | Request timeout in seconds |
+| `EMBEDDING_PROVIDER`     | `--embedding-provider` | `ollama`                       | No       | `ollama`, `openai`, or `none` |
+| `EMBEDDING_MODEL`        | `--embedding-model`    | *(provider default)*           | No       | Model name override |
+| `QDRANT_OLLAMA_URL`      | `--ollama-url`         | `http://localhost:11434`       | No       | Required when provider=ollama |
+| `OPENAI_API_KEY`         | —                      | —                              | No       | Required when provider=openai |
+| `OPENAI_BASE_URL`        | —                      | `https://api.openai.com/v1`    | No       | Override for OpenAI-compatible APIs |
+| —                        | `--readonly`           | off                            | No       | Disable all mutating tools |
+| —                        | `--log-json`           | off                            | No       | Emit structured JSON logs to stderr |
 
-### Per-user API key derivation
+> `QDRANT_USER_SECRET` has been removed in v2. Authentication is handled entirely
+> via JWT RBAC — see [Authentication Model](#authentication-model) below.
 
-When both `QDRANT_USER_SECRET` and `QDRANT_USERNAME` are set, the server derives a per-user API key:
+### Default vector sizes by provider
 
+| Provider | Default model          | Vector size |
+|----------|------------------------|-------------|
+| `ollama` | `nomic-embed-text`     | 768         |
+| `openai` | `text-embedding-3-small` | 1536      |
+
+`QDRANT_VECTOR_SIZE` must match the model in use. A mismatch between the configured
+size and an existing collection is a hard startup error.
+
+---
+
+## Authentication Model
+
+qdrant-mcp v2 uses Qdrant's JWT RBAC mechanism instead of derived API keys.
+
+**How it works:**
+
+1. On startup the server connects with `QDRANT_ADMIN_KEY` to provision the collection.
+2. It then generates a short-lived HS256 JWT signed with `QDRANT_ADMIN_KEY`.
+3. The JWT restricts access to the user's collection only — no other collection is reachable.
+4. All tool calls use this JWT; the raw admin key is never used during tool execution.
+5. The JWT expires after 1 hour (equal to the typical process lifetime of a spawned backend).
+
+**JWT payload:**
+
+```json
+{
+  "sub": "alice@example.com",
+  "exp": 1744120800,
+  "access": {
+    "collections": {
+      "alice_at_example_com": ["read", "write"]
+    }
+  }
+}
 ```
-api_key = hex(SHA-256(username + user_secret))
+
+**Qdrant must have JWT RBAC enabled** — the Docker Compose file includes this automatically:
+
+```yaml
+QDRANT__SERVICE__JWT_RBAC: "true"
 ```
 
-This is stateless — no key storage required. The MCP Bridge injects `QDRANT_USERNAME` per session automatically.
+Without this flag, JWTs are still accepted as bearer tokens but collection-level
+restriction is not enforced.
 
-### Vector size
+---
 
-The default is `1536`, matching OpenAI `text-embedding-3-small` and `text-embedding-ada-002`. Change this to match your model:
+## Embedding Providers
 
-| Model | Dimensions |
-|-------|-----------|
-| OpenAI text-embedding-3-small | 1536 |
-| OpenAI text-embedding-3-large | 3072 |
-| OpenAI text-embedding-ada-002 | 1536 |
-| Cohere embed-english-v3.0 | 1024 |
-| Nomic embed-text-v1 | 768 |
+When a tool receives text without a pre-computed vector, the configured provider
+is called automatically. If a vector is supplied, it is used directly (passthrough).
+
+### Ollama (default)
+
+```bash
+EMBEDDING_PROVIDER=ollama
+QDRANT_OLLAMA_URL=http://localhost:11434
+EMBEDDING_MODEL=nomic-embed-text   # default
+QDRANT_VECTOR_SIZE=768
+```
+
+The `nomic-embed-text` model is pulled automatically by the Docker Compose setup.
+
+### OpenAI
+
+```bash
+EMBEDDING_PROVIDER=openai
+OPENAI_API_KEY=sk-...
+EMBEDDING_MODEL=text-embedding-3-small   # default
+QDRANT_VECTOR_SIZE=1536
+```
+
+To use an OpenAI-compatible endpoint (e.g. Azure, local proxy):
+
+```bash
+OPENAI_BASE_URL=https://my-proxy.example.com/v1
+```
+
+### None (pre-computed vectors only)
+
+```bash
+EMBEDDING_PROVIDER=none
+```
+
+With `none`, `upsert_memory` and `search_memory` require callers to supply
+`embedding` / `query_embedding` directly. Calling those tools without a vector
+returns a descriptive error.
 
 ---
 
 ## Running the Server
 
-### Minimal (no auth)
+### Standard (Ollama, auto-embed)
 
 ```bash
-QDRANT_ADMIN_URL=http://localhost:6334 \
-QDRANT_COLLECTION=myapp \
+QDRANT_ADMIN_URL=http://localhost:6333 \
+QDRANT_ADMIN_KEY=my-admin-key \
+QDRANT_USERNAME=alice@example.com \
+QDRANT_COLLECTION=alice_at_example_com \
 ./qdrant-mcp
 ```
 
-### With API key and user isolation
+### OpenAI embeddings
 
 ```bash
-QDRANT_ADMIN_URL=http://localhost:6334 \
+QDRANT_ADMIN_URL=http://localhost:6333 \
 QDRANT_ADMIN_KEY=my-admin-key \
-QDRANT_USER_SECRET=my-secret \
 QDRANT_USERNAME=alice@example.com \
-QDRANT_COLLECTION=alice_collection \
+QDRANT_COLLECTION=alice_at_example_com \
+EMBEDDING_PROVIDER=openai \
+OPENAI_API_KEY=sk-... \
+QDRANT_VECTOR_SIZE=1536 \
 ./qdrant-mcp
 ```
 
@@ -133,9 +217,10 @@ QDRANT_COLLECTION=alice_collection \
 
 ```bash
 ./qdrant-mcp \
-  --admin-url http://localhost:6334 \
+  --admin-url http://localhost:6333 \
   --admin-key my-admin-key \
-  --collection myapp \
+  --username alice@example.com \
+  --collection alice_at_example_com \
   --vector-size 768 \
   --log-json
 ```
@@ -143,7 +228,12 @@ QDRANT_COLLECTION=alice_collection \
 ### Readonly mode
 
 ```bash
-./qdrant-mcp --admin-url http://localhost:6334 --collection myapp --readonly
+./qdrant-mcp \
+  --admin-url http://localhost:6333 \
+  --admin-key my-admin-key \
+  --username alice@example.com \
+  --collection alice_at_example_com \
+  --readonly
 ```
 
 ---
@@ -325,14 +415,17 @@ Delete points by explicit IDs or by filter. Provide at least one of `ids` or `fi
 
 #### `upsert_memory`
 
-Store a fact or observation. Automatically sets `type=memory` and `created_at` in the payload.
+Store a fact, observation, or note. Sets `type=memory` and `created` automatically.
+
+If `EMBEDDING_PROVIDER` is configured and no `embedding` is supplied, the server
+generates the vector from `content` automatically.
 
 **Input:**
 
 | Field         | Type          | Required | Description |
 |---------------|---------------|----------|-------------|
 | `content`     | string        | yes      | Text to store |
-| `embedding`   | array[number] | no       | Pre-computed vector for semantic search |
+| `embedding`   | array[number] | no       | Pre-computed vector (skips auto-embed when supplied) |
 | `metadata`    | object        | no       | Extra metadata |
 | `tags`        | array[string] | no       | Categorisation tags |
 | `ttl_seconds` | number        | no       | Expire after N seconds |
@@ -342,7 +435,6 @@ Store a fact or observation. Automatically sets `type=memory` and `created_at` i
 ```json
 {
   "content": "User prefers concise responses with code examples",
-  "embedding": [0.12, -0.34, 0.56],
   "tags": ["preference", "style"],
   "ttl_seconds": 86400
 }
@@ -360,14 +452,17 @@ The generated ID is `mem_<unix-nano>`.
 
 #### `search_memory`
 
-Search stored memories by semantic similarity. Automatically filters to `type=memory`.
+Search stored memories by semantic similarity. Filters to `type=memory` automatically.
+
+If `EMBEDDING_PROVIDER` is configured and no `query_embedding` is supplied, the
+server generates the query vector from `query` automatically.
 
 **Input:**
 
 | Field             | Type          | Required | Default | Description |
 |-------------------|---------------|----------|---------|-------------|
-| `query`           | string        | yes      | —       | Search text (for context; vector search requires `query_embedding`) |
-| `query_embedding` | array[number] | no       | —       | Pre-computed query vector |
+| `query`           | string        | yes      | —       | Search query text |
+| `query_embedding` | array[number] | no       | —       | Pre-computed query vector (skips auto-embed when supplied) |
 | `limit`           | number        | no       | 5       | Maximum results |
 | `filter`          | object        | no       | —       | Additional payload filters |
 
@@ -376,7 +471,6 @@ Search stored memories by semantic similarity. Automatically filters to `type=me
 ```json
 {
   "query": "user response preferences",
-  "query_embedding": [0.12, -0.34, 0.56],
   "limit": 3
 }
 ```
@@ -391,7 +485,7 @@ Search stored memories by semantic similarity. Automatically filters to `type=me
       "content": "User prefers concise responses with code examples",
       "tags": ["preference", "style"],
       "score": 0.95,
-      "metadata": {"created_at": "2026-04-08T10:00:00Z", "type": "memory"}
+      "metadata": {"created": "2026-04-08T10:00:00Z", "type": "memory"}
     }
   ],
   "count": 1
@@ -400,9 +494,44 @@ Search stored memories by semantic similarity. Automatically filters to `type=me
 
 ---
 
+#### `delete_memory`
+
+Delete memories by ID list or by tag. Provide at least one of `ids` or `tag`.
+
+**Input:**
+
+| Field | Type          | Required | Description |
+|-------|---------------|----------|-------------|
+| `ids` | array[string] | no*      | Memory point IDs to delete |
+| `tag` | string        | no*      | Delete all memories with this tag |
+
+\* At least one of `ids` or `tag` must be provided.
+
+**Example — delete by IDs:**
+
+```json
+{"ids": ["mem_1712345678901234567"]}
+```
+
+**Example — delete by tag:**
+
+```json
+{"tag": "preference"}
+```
+
+**Response:**
+
+```json
+{"success": true}
+```
+
+---
+
+### Sessions
+
 #### `list_sessions`
 
-List all stored sessions. Filters to `type=session` automatically.
+List stored sessions. Filters to `type=session` automatically.
 
 **Input:**
 
@@ -421,7 +550,7 @@ List all stored sessions. Filters to `type=session` automatically.
 ```json
 {
   "sessions": [
-    {"id": "session_1712345678901234567", "name": "research-task", "active": true, "state": {...}}
+    {"id": "session_1712345678901234567", "name": "research-task", "active": true, "state": {}}
   ],
   "count": 1
 }
@@ -451,8 +580,7 @@ Load a session's full state by its ID.
 {
   "id": "session_1712345678901234567",
   "name": "research-task",
-  "state": {"step": 3, "context": "analysing results"},
-  "active": false
+  "state": {"step": 3, "context": "analysing results"}
 }
 ```
 
@@ -460,7 +588,7 @@ Load a session's full state by its ID.
 
 #### `save_session`
 
-Persist session state. Automatically sets `type=session` and `created_at`. Generates a unique ID of the form `session_<unix-nano>`.
+Persist session state. Sets `type=session` and `created` automatically. Generates an ID of the form `session_<unix-nano>`.
 
 **Input:**
 
@@ -486,26 +614,20 @@ Persist session state. Automatically sets `type=session` and `created_at`. Gener
 
 ---
 
-#### `invalidate_cache`
+#### `delete_session`
 
-Delete cache entries by key prefix, or clear all cache entries.
+Remove a session by ID.
 
 **Input:**
 
-| Field    | Type   | Required | Description |
-|----------|--------|----------|-------------|
-| `prefix` | string | no       | Key prefix to match; omit to clear all cache entries |
+| Field | Type   | Required | Description |
+|-------|--------|----------|-------------|
+| `id`  | string | yes      | Session ID to delete |
 
-**Example — clear a prefix:**
-
-```json
-{"prefix": "embeddings/v2/"}
-```
-
-**Example — clear all cache:**
+**Example:**
 
 ```json
-{}
+{"id": "session_1712345678901234567"}
 ```
 
 **Response:**
@@ -535,7 +657,7 @@ Store a result under a cache key with TTL. The point ID is `cache_<sha256(key)>`
 ```json
 {
   "key": "embed/sha256:abc123",
-  "value": {"vector": [0.12, -0.34, 0.56], "model": "text-embedding-3-small"},
+  "value": {"vector": [0.12, -0.34, 0.56], "model": "nomic-embed-text"},
   "ttl_seconds": 7200
 }
 ```
@@ -569,12 +691,71 @@ Retrieve a cached value by key. Returns an error if the entry does not exist or 
 ```json
 {
   "key": "embed/sha256:abc123",
-  "value": {"vector": [0.12, -0.34, 0.56], "model": "text-embedding-3-small"},
-  "created_at": "2026-04-08T10:00:00Z"
+  "value": {"vector": [0.12, -0.34, 0.56], "model": "nomic-embed-text"},
+  "created": "2026-04-08T10:00:00Z"
 }
 ```
 
 **Response (expired or missing):** error — `"cache entry expired"` or `"get cache: …"`
+
+---
+
+#### `invalidate_cache`
+
+Delete cache entries by key prefix, or clear all cache entries.
+
+**Input:**
+
+| Field    | Type   | Required | Description |
+|----------|--------|----------|-------------|
+| `prefix` | string | no       | Key prefix to match; omit to clear all cache entries |
+
+**Example — clear a prefix:**
+
+```json
+{"prefix": "embeddings/v2/"}
+```
+
+**Example — clear all cache:**
+
+```json
+{}
+```
+
+**Response:**
+
+```json
+{"success": true}
+```
+
+---
+
+### Admin / Diagnostics
+
+#### `collection_info`
+
+Return diagnostics for the user's collection: vector count, vector size, distance metric, and index status.
+
+**Input:** none required
+
+**Example:**
+
+```json
+{}
+```
+
+**Response:**
+
+```json
+{
+  "collection": "alice_at_example_com",
+  "status": "CollectionStatus_Green",
+  "vector_size": 768,
+  "distance": "Distance_Cosine",
+  "points_count": 142,
+  "indexed_vectors_count": 142
+}
+```
 
 ---
 
@@ -584,24 +765,28 @@ Add to your MCP Bridge backend configuration:
 
 ```json
 {
-  "backend": "qdrant-mcp",
-  "command": "/usr/local/bin/qdrant-mcp",
-  "env": {
-    "QDRANT_ADMIN_URL": "http://qdrant:6334",
-    "QDRANT_ADMIN_KEY": "${QDRANT_ADMIN_KEY}",
-    "QDRANT_USER_SECRET": "${QDRANT_USER_SECRET}",
-    "QDRANT_VECTOR_SIZE": "1536"
-  }
+  "QDRANT_ADMIN_URL":   "http://localhost:6333",
+  "QDRANT_ADMIN_KEY":   "<openssl rand -hex 32>",
+  "QDRANT_OLLAMA_URL":  "http://localhost:11434",
+  "QDRANT_VECTOR_SIZE": "768",
+  "QDRANT_USERNAME":    "{{users.email}}",
+  "QDRANT_COLLECTION":  "{{users.email|sanitised}}"
 }
 ```
 
-The bridge injects `QDRANT_USERNAME` and `QDRANT_COLLECTION` automatically per session. The server will create the collection on first use if it does not exist (`EnsureCollection` is idempotent).
+The bridge injects `QDRANT_USERNAME` and `QDRANT_COLLECTION` per session via
+template expressions. On each spawn the server provisions the collection if absent
+and issues a fresh scoped JWT — no manual key management required.
+
+> `QDRANT_USER_SECRET` is no longer used and should be removed from any existing
+> bridge configurations.
 
 ---
 
 ## Readonly Mode
 
-Start with `--readonly` to allow read operations only. All six mutating tools remain visible in `tools/list` but return a deterministic error when called:
+Start with `--readonly` to allow read operations only. All mutating tools remain
+visible in `tools/list` but return a deterministic error when called:
 
 ```
 write operations are disabled in readonly mode
@@ -609,14 +794,16 @@ write operations are disabled in readonly mode
 
 Mutating tools:
 
-| Tool | Category |
-|------|----------|
-| `upsert_point`    | CRUD |
-| `delete_points`   | CRUD |
-| `upsert_memory`   | Memory |
-| `save_session`    | Memory |
-| `invalidate_cache`| Memory |
-| `upsert_cache`    | Cache |
+| Tool               | Category |
+|--------------------|----------|
+| `upsert_point`     | CRUD     |
+| `delete_points`    | CRUD     |
+| `upsert_memory`    | Memory   |
+| `delete_memory`    | Memory   |
+| `save_session`     | Sessions |
+| `delete_session`   | Sessions |
+| `upsert_cache`     | Cache    |
+| `invalidate_cache` | Cache    |
 
 ---
 
@@ -625,16 +812,18 @@ Mutating tools:
 ### Unit tests (no Qdrant required)
 
 ```bash
-make test
+go test ./... -race -count=1
 ```
 
-Coverage targets: `tools` 80%+ (96%), `config` 60%+ (90%), `normalize` 100%, `readonly` 100%.
+All packages pass with no live Qdrant or Ollama instance. Coverage targets:
+`tools` 80%+, `config` 60%+, `embed` 90%+, `qdrant` 80%+, `normalize` 100%, `readonly` 100%.
 
 ### Integration tests (live Qdrant required)
 
 ```bash
-# Start Qdrant first (see Quick Start above), then:
+# Start the stack first (see Quick Start), then:
 QDRANT_TEST_URL=http://localhost:6334 go test ./internal/client -v -run Integration
 ```
 
-Integration tests exercise all six I/O methods against a real Qdrant instance and are automatically skipped when `QDRANT_TEST_URL` is unset.
+Integration tests exercise all I/O methods against a real Qdrant instance and are
+automatically skipped when `QDRANT_TEST_URL` is unset.

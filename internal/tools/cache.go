@@ -166,3 +166,64 @@ func (t *GetCacheTool) GetEnforcerProfile() *framework.EnforcerProfile {
 		framework.WithIdempotent(true),
 	)
 }
+
+// ---------------------------------------------------------------------------
+// InvalidateCacheTool
+// ---------------------------------------------------------------------------
+
+type InvalidateCacheTool struct {
+	client QdrantClient
+	cfg    readonly.ReadOnlyChecker
+}
+
+func NewInvalidateCacheTool(c QdrantClient, cfg readonly.ReadOnlyChecker) *InvalidateCacheTool {
+	return &InvalidateCacheTool{client: c, cfg: cfg}
+}
+
+func (t *InvalidateCacheTool) Name() string { return "invalidate_cache" }
+
+func (t *InvalidateCacheTool) Description() string {
+	return "Clear stale cache entries by key prefix or all."
+}
+
+func (t *InvalidateCacheTool) Schema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"prefix": map[string]interface{}{
+				"type":        "string",
+				"description": "Key prefix to invalidate (optional, clears all if empty)",
+			},
+		},
+	}
+}
+
+func (t *InvalidateCacheTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+	if err := readonly.EnforceWrite(t.cfg); err != nil {
+		return "", err
+	}
+
+	prefix, _ := args["prefix"].(string)
+
+	var filter map[string]interface{}
+	if prefix != "" {
+		filter = map[string]interface{}{"key": prefix}
+	} else {
+		filter = map[string]interface{}{"type": "cache"}
+	}
+
+	if err := t.client.DeletePoints(ctx, nil, filter); err != nil {
+		return "", fmt.Errorf("invalidate cache: %w", err)
+	}
+
+	return `{"success": true}`, nil
+}
+
+func (t *InvalidateCacheTool) GetEnforcerProfile() *framework.EnforcerProfile {
+	return framework.NewEnforcerProfile(
+		framework.WithRisk(framework.RiskMed),
+		framework.WithImpact(framework.ImpactWrite),
+		framework.WithPII(true),
+		framework.WithIdempotent(false),
+	)
+}

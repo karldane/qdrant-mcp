@@ -37,6 +37,9 @@ type mockClient struct {
 	getRes     *client.GetResult
 	getErr     error
 	deleteErr  error
+
+	collectionInfoRes map[string]interface{}
+	collectionInfoErr error
 }
 
 func (m *mockClient) UpsertPoint(_ context.Context, _ string, _ []float64, _ map[string]interface{}) error {
@@ -53,6 +56,28 @@ func (m *mockClient) GetPoint(_ context.Context, _ string) (*client.GetResult, e
 }
 func (m *mockClient) DeletePoints(_ context.Context, _ []string, _ map[string]interface{}) error {
 	return m.deleteErr
+}
+func (m *mockClient) CollectionInfo(_ context.Context) (map[string]interface{}, error) {
+	return m.collectionInfoRes, m.collectionInfoErr
+}
+
+// mockEmbedProvider is a controllable embed.Provider for auto-embed tests.
+type mockEmbedProvider struct {
+	result     []float64
+	err        error
+	called     int
+	vectorSize int
+}
+
+func (m *mockEmbedProvider) Embed(_ context.Context, _ string) ([]float64, error) {
+	m.called++
+	return m.result, m.err
+}
+func (m *mockEmbedProvider) VectorSize() int {
+	if m.vectorSize == 0 {
+		return 768
+	}
+	return m.vectorSize
 }
 
 // ---------------------------------------------------------------------------
@@ -71,12 +96,15 @@ func TestToolNames(t *testing.T) {
 		{"delete_points", NewDeletePointsTool(nil, rwCfg).Name()},
 		{"upsert_memory", NewUpsertMemoryTool(nil, rwCfg).Name()},
 		{"search_memory", NewSearchMemoryTool(nil, rwCfg).Name()},
+		{"delete_memory", NewDeleteMemoryTool(nil, rwCfg).Name()},
 		{"list_sessions", NewListSessionsTool(nil, rwCfg).Name()},
 		{"load_session", NewLoadSessionTool(nil, rwCfg).Name()},
 		{"save_session", NewSaveSessionTool(nil, rwCfg).Name()},
+		{"delete_session", NewDeleteSessionTool(nil, rwCfg).Name()},
 		{"invalidate_cache", NewInvalidateCacheTool(nil, rwCfg).Name()},
 		{"upsert_cache", NewUpsertCacheTool(nil, rwCfg).Name()},
 		{"get_cache", NewGetCacheTool(nil, rwCfg).Name()},
+		{"collection_info", NewCollectionInfoTool(nil, rwCfg).Name()},
 	}
 	for _, tt := range tools {
 		assert.Equal(t, tt.name, tt.got, "tool name mismatch")
@@ -92,12 +120,15 @@ func TestToolDescriptionsNonEmpty(t *testing.T) {
 		NewDeletePointsTool(nil, rwCfg).Description(),
 		NewUpsertMemoryTool(nil, rwCfg).Description(),
 		NewSearchMemoryTool(nil, rwCfg).Description(),
+		NewDeleteMemoryTool(nil, rwCfg).Description(),
 		NewListSessionsTool(nil, rwCfg).Description(),
 		NewLoadSessionTool(nil, rwCfg).Description(),
 		NewSaveSessionTool(nil, rwCfg).Description(),
+		NewDeleteSessionTool(nil, rwCfg).Description(),
 		NewInvalidateCacheTool(nil, rwCfg).Description(),
 		NewUpsertCacheTool(nil, rwCfg).Description(),
 		NewGetCacheTool(nil, rwCfg).Description(),
+		NewCollectionInfoTool(nil, rwCfg).Description(),
 	}
 	for _, d := range descs {
 		assert.NotEmpty(t, d)
@@ -120,12 +151,15 @@ func TestSchemaTypes(t *testing.T) {
 		{"delete_points", NewDeletePointsTool(nil, rwCfg).Schema().Type},
 		{"upsert_memory", NewUpsertMemoryTool(nil, rwCfg).Schema().Type},
 		{"search_memory", NewSearchMemoryTool(nil, rwCfg).Schema().Type},
+		{"delete_memory", NewDeleteMemoryTool(nil, rwCfg).Schema().Type},
 		{"list_sessions", NewListSessionsTool(nil, rwCfg).Schema().Type},
 		{"load_session", NewLoadSessionTool(nil, rwCfg).Schema().Type},
 		{"save_session", NewSaveSessionTool(nil, rwCfg).Schema().Type},
+		{"delete_session", NewDeleteSessionTool(nil, rwCfg).Schema().Type},
 		{"invalidate_cache", NewInvalidateCacheTool(nil, rwCfg).Schema().Type},
 		{"upsert_cache", NewUpsertCacheTool(nil, rwCfg).Schema().Type},
 		{"get_cache", NewGetCacheTool(nil, rwCfg).Schema().Type},
+		{"collection_info", NewCollectionInfoTool(nil, rwCfg).Schema().Type},
 	}
 	for _, s := range schemas {
 		assert.Equal(t, "object", s.typ, "schema type for %s", s.name)
@@ -174,6 +208,11 @@ func TestRequiredFields(t *testing.T) {
 			func() []string { return NewSaveSessionTool(nil, rwCfg).Schema().Required },
 		},
 		{
+			"delete_session",
+			[]string{"id"},
+			func() []string { return NewDeleteSessionTool(nil, rwCfg).Schema().Required },
+		},
+		{
 			"upsert_cache",
 			[]string{"key", "value"},
 			func() []string { return NewUpsertCacheTool(nil, rwCfg).Schema().Required },
@@ -199,6 +238,8 @@ func TestOptionalToolsHaveNoRequiredFields(t *testing.T) {
 	assert.Empty(t, NewScrollPointsTool(nil, rwCfg).Schema().Required)
 	assert.Empty(t, NewListSessionsTool(nil, rwCfg).Schema().Required)
 	assert.Empty(t, NewInvalidateCacheTool(nil, rwCfg).Schema().Required)
+	assert.Empty(t, NewDeleteMemoryTool(nil, rwCfg).Schema().Required)
+	assert.Empty(t, NewCollectionInfoTool(nil, rwCfg).Schema().Required)
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +285,10 @@ func TestEnforcerProfiles(t *testing.T) {
 			wantRisk: framework.RiskLow, wantImpact: framework.ImpactRead, wantPII: false, wantIdemp: true,
 		},
 		{
+			toolName: "collection_info", profile: NewCollectionInfoTool(nil, rwCfg).GetEnforcerProfile(),
+			wantRisk: framework.RiskLow, wantImpact: framework.ImpactRead, wantPII: false, wantIdemp: true,
+		},
+		{
 			toolName: "upsert_point", profile: NewUpsertPointTool(nil, rwCfg).GetEnforcerProfile(),
 			wantRisk: framework.RiskMed, wantImpact: framework.ImpactWrite, wantPII: true, wantIdemp: true,
 		},
@@ -256,6 +301,10 @@ func TestEnforcerProfiles(t *testing.T) {
 			wantRisk: framework.RiskMed, wantImpact: framework.ImpactWrite, wantPII: true, wantIdemp: false,
 		},
 		{
+			toolName: "delete_session", profile: NewDeleteSessionTool(nil, rwCfg).GetEnforcerProfile(),
+			wantRisk: framework.RiskMed, wantImpact: framework.ImpactDelete, wantPII: true, wantIdemp: true,
+		},
+		{
 			toolName: "invalidate_cache", profile: NewInvalidateCacheTool(nil, rwCfg).GetEnforcerProfile(),
 			wantRisk: framework.RiskMed, wantImpact: framework.ImpactWrite, wantPII: true, wantIdemp: false,
 		},
@@ -265,6 +314,10 @@ func TestEnforcerProfiles(t *testing.T) {
 		},
 		{
 			toolName: "delete_points", profile: NewDeletePointsTool(nil, rwCfg).GetEnforcerProfile(),
+			wantRisk: framework.RiskHigh, wantImpact: framework.ImpactDelete, wantPII: true, wantIdemp: true,
+		},
+		{
+			toolName: "delete_memory", profile: NewDeleteMemoryTool(nil, rwCfg).GetEnforcerProfile(),
 			wantRisk: framework.RiskHigh, wantImpact: framework.ImpactDelete, wantPII: true, wantIdemp: true,
 		},
 	}
@@ -288,7 +341,6 @@ func TestEnforcerProfiles(t *testing.T) {
 
 func TestReadonlyEnforcement(t *testing.T) {
 	ctx := context.Background()
-	// pass a non-nil mock so we know the readonly check fires first
 	mc := &mockClient{}
 
 	mutatingTools := []struct {
@@ -304,8 +356,14 @@ func TestReadonlyEnforcement(t *testing.T) {
 		{"upsert_memory", func(args map[string]interface{}) (string, error) {
 			return NewUpsertMemoryTool(mc, roCfg).Handle(ctx, args)
 		}},
+		{"delete_memory", func(args map[string]interface{}) (string, error) {
+			return NewDeleteMemoryTool(mc, roCfg).Handle(ctx, args)
+		}},
 		{"save_session", func(args map[string]interface{}) (string, error) {
 			return NewSaveSessionTool(mc, roCfg).Handle(ctx, args)
+		}},
+		{"delete_session", func(args map[string]interface{}) (string, error) {
+			return NewDeleteSessionTool(mc, roCfg).Handle(ctx, args)
 		}},
 		{"invalidate_cache", func(args map[string]interface{}) (string, error) {
 			return NewInvalidateCacheTool(mc, roCfg).Handle(ctx, args)
@@ -342,6 +400,20 @@ func TestDeletePointsRequiresIdsOrFilter(t *testing.T) {
 	_, err := tool.Handle(context.Background(), map[string]interface{}{})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "filter")
+}
+
+func TestDeleteMemoryRequiresIdsOrTag(t *testing.T) {
+	tool := NewDeleteMemoryTool(&mockClient{}, rwCfg)
+	_, err := tool.Handle(context.Background(), map[string]interface{}{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "tag")
+}
+
+func TestDeleteSessionRequiresID(t *testing.T) {
+	tool := NewDeleteSessionTool(&mockClient{}, rwCfg)
+	_, err := tool.Handle(context.Background(), map[string]interface{}{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "id")
 }
 
 // ---------------------------------------------------------------------------
@@ -465,6 +537,10 @@ func TestDeletePointsHandle_ClientError(t *testing.T) {
 	assert.Contains(t, err.Error(), "delete points")
 }
 
+// ---------------------------------------------------------------------------
+// Memory tools
+// ---------------------------------------------------------------------------
+
 func TestUpsertMemoryHandle_Success(t *testing.T) {
 	mc := &mockClient{}
 	tool := NewUpsertMemoryTool(mc, rwCfg)
@@ -485,6 +561,41 @@ func TestUpsertMemoryHandle_WithTTL(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Contains(t, out, "true")
+}
+
+func TestUpsertMemoryHandle_AutoEmbed(t *testing.T) {
+	mc := &mockClient{}
+	embedder := &mockEmbedProvider{result: []float64{0.1, 0.2, 0.3}}
+	tool := NewUpsertMemoryTool(mc, rwCfg, embedder)
+	out, err := tool.Handle(context.Background(), map[string]interface{}{
+		"content": "auto-embed this",
+		// no "embedding" key — provider should be called
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out, "true")
+	assert.Equal(t, 1, embedder.called, "embedder should have been called once")
+}
+
+func TestUpsertMemoryHandle_PassthroughVector(t *testing.T) {
+	mc := &mockClient{}
+	embedder := &mockEmbedProvider{result: []float64{9.9}}
+	tool := NewUpsertMemoryTool(mc, rwCfg, embedder)
+	out, err := tool.Handle(context.Background(), map[string]interface{}{
+		"content":   "pre-embedded",
+		"embedding": []interface{}{0.1, 0.2}, // supplied — provider must NOT be called
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out, "true")
+	assert.Equal(t, 0, embedder.called, "embedder must not be called when vector is supplied")
+}
+
+func TestUpsertMemoryHandle_EmbedError(t *testing.T) {
+	mc := &mockClient{}
+	embedder := &mockEmbedProvider{err: errors.New("embed provider down")}
+	tool := NewUpsertMemoryTool(mc, rwCfg, embedder)
+	_, err := tool.Handle(context.Background(), map[string]interface{}{"content": "x"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "auto-embed")
 }
 
 func TestUpsertMemoryHandle_ClientError(t *testing.T) {
@@ -515,6 +626,30 @@ func TestSearchMemoryHandle_Success(t *testing.T) {
 	assert.Contains(t, out, `"count":1`)
 }
 
+func TestSearchMemoryHandle_AutoEmbed(t *testing.T) {
+	mc := &mockClient{searchRes: []client.SearchResult{}}
+	embedder := &mockEmbedProvider{result: []float64{0.5, 0.5}}
+	tool := NewSearchMemoryTool(mc, rwCfg, embedder)
+	_, err := tool.Handle(context.Background(), map[string]interface{}{
+		"query": "auto search",
+		// no query_embedding — provider should be called
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 1, embedder.called)
+}
+
+func TestSearchMemoryHandle_PassthroughVector(t *testing.T) {
+	mc := &mockClient{searchRes: []client.SearchResult{}}
+	embedder := &mockEmbedProvider{result: []float64{9.9}}
+	tool := NewSearchMemoryTool(mc, rwCfg, embedder)
+	_, err := tool.Handle(context.Background(), map[string]interface{}{
+		"query":           "pre-embedded query",
+		"query_embedding": []interface{}{0.1, 0.2},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, 0, embedder.called, "provider must not be called when query_embedding is supplied")
+}
+
 func TestSearchMemoryHandle_ClientError(t *testing.T) {
 	mc := &mockClient{searchErr: errors.New("search failed")}
 	tool := NewSearchMemoryTool(mc, rwCfg)
@@ -522,6 +657,40 @@ func TestSearchMemoryHandle_ClientError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "search memory")
 }
+
+func TestDeleteMemoryHandle_ByIDs(t *testing.T) {
+	mc := &mockClient{}
+	tool := NewDeleteMemoryTool(mc, rwCfg)
+	out, err := tool.Handle(context.Background(), map[string]interface{}{
+		"ids": []interface{}{"mem_1", "mem_2"},
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out, "true")
+}
+
+func TestDeleteMemoryHandle_ByTag(t *testing.T) {
+	mc := &mockClient{}
+	tool := NewDeleteMemoryTool(mc, rwCfg)
+	out, err := tool.Handle(context.Background(), map[string]interface{}{
+		"tag": "important",
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out, "true")
+}
+
+func TestDeleteMemoryHandle_ClientError(t *testing.T) {
+	mc := &mockClient{deleteErr: errors.New("delete failed")}
+	tool := NewDeleteMemoryTool(mc, rwCfg)
+	_, err := tool.Handle(context.Background(), map[string]interface{}{
+		"ids": []interface{}{"x"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "delete memory")
+}
+
+// ---------------------------------------------------------------------------
+// Session tools
+// ---------------------------------------------------------------------------
 
 func TestListSessionsHandle_Success(t *testing.T) {
 	mc := &mockClient{
@@ -587,6 +756,26 @@ func TestSaveSessionHandle_ClientError(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "save session")
 }
+
+func TestDeleteSessionHandle_Success(t *testing.T) {
+	mc := &mockClient{}
+	tool := NewDeleteSessionTool(mc, rwCfg)
+	out, err := tool.Handle(context.Background(), map[string]interface{}{"id": "sess-abc"})
+	require.NoError(t, err)
+	assert.Contains(t, out, "true")
+}
+
+func TestDeleteSessionHandle_ClientError(t *testing.T) {
+	mc := &mockClient{deleteErr: errors.New("delete failed")}
+	tool := NewDeleteSessionTool(mc, rwCfg)
+	_, err := tool.Handle(context.Background(), map[string]interface{}{"id": "x"})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "delete session")
+}
+
+// ---------------------------------------------------------------------------
+// Cache tools
+// ---------------------------------------------------------------------------
 
 func TestInvalidateCacheHandle_WithPrefix(t *testing.T) {
 	mc := &mockClient{}
@@ -676,4 +865,31 @@ func TestGetCacheHandle_ClientError(t *testing.T) {
 	_, err := tool.Handle(context.Background(), map[string]interface{}{"key": "missing"})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "get cache")
+}
+
+// ---------------------------------------------------------------------------
+// Admin tools
+// ---------------------------------------------------------------------------
+
+func TestCollectionInfoHandle_Success(t *testing.T) {
+	mc := &mockClient{
+		collectionInfoRes: map[string]interface{}{
+			"collection":   "alice_at_example_com",
+			"points_count": int64(42),
+			"vector_size":  uint64(768),
+			"status":       "Green",
+		},
+	}
+	tool := NewCollectionInfoTool(mc, rwCfg)
+	out, err := tool.Handle(context.Background(), map[string]interface{}{})
+	require.NoError(t, err)
+	assert.Contains(t, out, "alice_at_example_com")
+}
+
+func TestCollectionInfoHandle_ClientError(t *testing.T) {
+	mc := &mockClient{collectionInfoErr: errors.New("collection not found")}
+	tool := NewCollectionInfoTool(mc, rwCfg)
+	_, err := tool.Handle(context.Background(), map[string]interface{}{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "collection_info")
 }
