@@ -41,6 +41,11 @@ All operations use the user's private collection for data isolation.`,
 		}),
 	}
 
+	// Wire readonly config into the framework's write-gate.
+	// The framework defaults to writeEnabled=false; we enable writes unless
+	// --readonly was explicitly passed.
+	s.Server.SetWriteEnabled(!cfg.ReadOnly())
+
 	s.registerTools(c, cfg)
 	return s, nil
 }
