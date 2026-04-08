@@ -73,7 +73,7 @@ func (t *UpsertPointTool) Handle(ctx context.Context, args map[string]interface{
 	return fmt.Sprintf(`{"success": true, "id": "%s"}`, id), nil
 }
 
-func (t *UpsertPointTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *UpsertPointTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskMed),
 		framework.WithImpact(framework.ImpactWrite),
@@ -161,7 +161,7 @@ func (t *SearchPointsTool) Handle(ctx context.Context, args map[string]interface
 	return string(b), nil
 }
 
-func (t *SearchPointsTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *SearchPointsTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskLow),
 		framework.WithImpact(framework.ImpactRead),
@@ -239,7 +239,7 @@ func (t *ScrollPointsTool) Handle(ctx context.Context, args map[string]interface
 	return string(b), nil
 }
 
-func (t *ScrollPointsTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *ScrollPointsTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskLow),
 		framework.WithImpact(framework.ImpactRead),
@@ -294,7 +294,7 @@ func (t *GetPointTool) Handle(ctx context.Context, args map[string]interface{}) 
 	return string(b), nil
 }
 
-func (t *GetPointTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *GetPointTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskLow),
 		framework.WithImpact(framework.ImpactRead),
@@ -362,7 +362,7 @@ func (t *DeletePointsTool) Handle(ctx context.Context, args map[string]interface
 	return `{"success": true}`, nil
 }
 
-func (t *DeletePointsTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *DeletePointsTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskHigh),
 		framework.WithImpact(framework.ImpactDelete),

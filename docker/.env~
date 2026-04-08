@@ -1,9 +1,9 @@
-# Copy to .env and fill in your API keys before running docker compose up
+# Copy to .env and fill in values before running docker compose up
 
 # Admin API key — used by the backend for provisioning (creating collections)
 # Generate with: openssl rand -hex 32
 QDRANT_API_KEY=replace-with-openssl-rand-hex-32
 
-# Read-only API key — optional, for read-only clients
+# Read-only API key — optional, for any read-only clients
 # Generate with: openssl rand -hex 32
 QDRANT_READ_ONLY_API_KEY=replace-with-openssl-rand-hex-32

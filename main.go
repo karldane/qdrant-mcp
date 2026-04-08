@@ -26,8 +26,9 @@ func NewServer() (*Server, error) {
 
 	s := &Server{
 		Server: framework.NewServerWithConfig(&framework.Config{
-			Name:    "qdrant-mcp",
-			Version: "0.1.0",
+			Name:         "qdrant-mcp",
+			Version:      "0.1.0",
+			WriteEnabled: !cfg.ReadOnly(),
 			Instructions: `Qdrant MCP Server
 
 A vector database server providing semantic search and storage capabilities.
@@ -40,11 +41,6 @@ Available tools:
 All operations use the user's private collection for data isolation.`,
 		}),
 	}
-
-	// Wire readonly config into the framework's write-gate.
-	// The framework defaults to writeEnabled=false; we enable writes unless
-	// --readonly was explicitly passed.
-	s.Server.SetWriteEnabled(!cfg.ReadOnly())
 
 	s.registerTools(c, cfg)
 	return s, nil

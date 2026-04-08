@@ -85,7 +85,7 @@ func (t *UpsertCacheTool) Handle(ctx context.Context, args map[string]interface{
 	return fmt.Sprintf(`{"success": true, "key": "%s"}`, key), nil
 }
 
-func (t *UpsertCacheTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *UpsertCacheTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskMed),
 		framework.WithImpact(framework.ImpactWrite),
@@ -158,7 +158,7 @@ func (t *GetCacheTool) Handle(ctx context.Context, args map[string]interface{}) 
 	return string(b), nil
 }
 
-func (t *GetCacheTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *GetCacheTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskLow),
 		framework.WithImpact(framework.ImpactRead),

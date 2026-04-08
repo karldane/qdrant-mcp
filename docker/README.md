@@ -1,4 +1,12 @@
-# Local Qdrant for MCP Testing
+# Local Qdrant + Ollama for MCP Testing
+
+## Stack
+
+| Service | Purpose | Port |
+|---|---|---|
+| Qdrant | Vector database | `localhost:6333` (REST), `localhost:6334` (gRPC) |
+| Ollama | Local embedding model server | `localhost:11434` |
+| ollama-model-pull | One-shot sidecar to pull the model | — |
 
 ## Quick Start
 
@@ -6,8 +14,11 @@
 cp .env.example .env
 # Edit .env and set your API keys (see below)
 docker compose up -d
-docker compose ps   # confirm healthy
+docker compose logs -f ollama-model-pull  # watch the model pull
 ```
+
+The first start downloads `nomic-embed-text` (~274MB). Subsequent starts skip
+the pull — the model is cached in the `ollama_models` volume.
 
 ## Generate API Keys
 
@@ -17,30 +28,25 @@ openssl rand -hex 32   # run twice — once for each key
 
 Paste the results into `.env`.
 
-## Connection Details
-
-| | Value |
-|---|---|
-| REST API | `http://localhost:6333` |
-| gRPC API | `localhost:6334` |
-| Web UI | `http://localhost:6333/dashboard` |
-| Admin API key | Value of `QDRANT_API_KEY` in `.env` |
-| Read-only key | Value of `QDRANT_READ_ONLY_API_KEY` in `.env` |
-
-## Test the API
+## Test the Services
 
 ```bash
-# Health check (no auth needed)
+# Qdrant health
 curl http://localhost:6333/healthz
 
-# List collections (admin key required)
+# Qdrant collections (requires API key)
 curl http://localhost:6333/collections \
-  -H "api-key: $(grep QDRANT_API_KEY .env | cut -d= -f2)"
+  -H "api-key: $(grep ^QDRANT_API_KEY .env | cut -d= -f2)"
+
+# Ollama: generate an embedding
+curl http://localhost:11434/api/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"model": "nomic-embed-text", "prompt": "hello world"}'
 ```
 
-## Bridge Backend Config
+The embedding response should contain a 768-element float array.
 
-Set these as system env vars on your qdrant backend in the bridge admin:
+## Bridge Backend Config
 
 ```json
 {
@@ -48,27 +54,46 @@ Set these as system env vars on your qdrant backend in the bridge admin:
   "QDRANT_ADMIN_KEY":    "<value of QDRANT_API_KEY>",
   "QDRANT_USER_SECRET":  "<openssl rand -hex 32>",
   "QDRANT_HOST":         "qdrant.internal",
+  "QDRANT_OLLAMA_URL":   "http://ollama.internal:11434",
+  "QDRANT_VECTOR_SIZE":  "768",
   "QDRANT_USERNAME":     "{{users.email}}",
   "QDRANT_COLLECTION":   "{{users.email|sanitised}}"
 }
 ```
 
-For local testing, use `localhost` in place of `qdrant.internal`.
+For local testing use `localhost` in place of `*.internal`.
+
+## Important: QDRANT_VECTOR_SIZE
+
+`nomic-embed-text` produces **768-dimension** vectors.
+Set `QDRANT_VECTOR_SIZE=768` in the backend config to match.
+If you change embedding models, wipe Qdrant storage first:
+
+```bash
+docker compose down -v && docker compose up -d
+```
 
 ## Useful Commands
 
 ```bash
-docker compose up -d        # start
-docker compose down         # stop (data persists)
-docker compose down -v      # stop AND wipe all data
-docker compose logs -f      # tail logs
+docker compose up -d            # start everything
+docker compose down             # stop (data persists)
+docker compose down -v          # stop AND wipe all data
+docker compose logs -f          # tail all logs
+docker compose logs -f ollama   # ollama only
 ```
 
-## Notes
+## GPU Acceleration (optional)
 
-- Both ports are bound to `127.0.0.1` only — not reachable from other hosts.
-- Data lives in the `qdrant_storage` named volume; survives restarts.
-- `docker compose down -v` wipes all collections and points — use to reset.
-- The web UI at `/dashboard` is useful for inspecting collections and running
-  test queries visually.
-- API key auth uses the `api-key` HTTP header (not `Authorization: Bearer`).
+If you have an NVIDIA GPU and nvidia-container-toolkit installed,
+add the following to the `ollama` service to accelerate embedding generation:
+
+```yaml
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+```

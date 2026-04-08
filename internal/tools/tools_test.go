@@ -208,7 +208,7 @@ func TestOptionalToolsHaveNoRequiredFields(t *testing.T) {
 func TestEnforcerProfiles(t *testing.T) {
 	tests := []struct {
 		toolName    string
-		profile     framework.EnforcerProfile
+		profile     *framework.EnforcerProfile
 		wantRisk    framework.RiskLevel
 		wantImpact  framework.ImpactScope
 		wantPII     bool

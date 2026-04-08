@@ -108,7 +108,7 @@ func (t *UpsertMemoryTool) Handle(ctx context.Context, args map[string]interface
 	return fmt.Sprintf(`{"success": true, "id": "%s"}`, id), nil
 }
 
-func (t *UpsertMemoryTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *UpsertMemoryTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskMed),
 		framework.WithImpact(framework.ImpactWrite),
@@ -217,7 +217,7 @@ func (t *SearchMemoryTool) Handle(ctx context.Context, args map[string]interface
 	return string(b), nil
 }
 
-func (t *SearchMemoryTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *SearchMemoryTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskLow),
 		framework.WithImpact(framework.ImpactRead),
@@ -291,7 +291,7 @@ func (t *ListSessionsTool) Handle(ctx context.Context, args map[string]interface
 	return string(b), nil
 }
 
-func (t *ListSessionsTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *ListSessionsTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskLow),
 		framework.WithImpact(framework.ImpactRead),
@@ -351,7 +351,7 @@ func (t *LoadSessionTool) Handle(ctx context.Context, args map[string]interface{
 	return string(b), nil
 }
 
-func (t *LoadSessionTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *LoadSessionTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskLow),
 		framework.WithImpact(framework.ImpactRead),
@@ -416,7 +416,7 @@ func (t *SaveSessionTool) Handle(ctx context.Context, args map[string]interface{
 	return fmt.Sprintf(`{"success": true, "id": "%s"}`, id), nil
 }
 
-func (t *SaveSessionTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *SaveSessionTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskMed),
 		framework.WithImpact(framework.ImpactWrite),
@@ -473,7 +473,7 @@ func (t *InvalidateCacheTool) Handle(ctx context.Context, args map[string]interf
 	return `{"success": true}`, nil
 }
 
-func (t *InvalidateCacheTool) GetEnforcerProfile() framework.EnforcerProfile {
+func (t *InvalidateCacheTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskMed),
 		framework.WithImpact(framework.ImpactWrite),
