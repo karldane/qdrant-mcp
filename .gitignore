@@ -22,3 +22,4 @@ coverage.html
 Thumbs.db
 devdocs
 docker/.env
+vendor
