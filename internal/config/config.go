@@ -29,6 +29,9 @@ type Config struct {
 	OllamaURL         string
 	OpenAIKey         string
 	OpenAIBaseURL     string
+
+	// Deduplication
+	DedupThreshold float64
 }
 
 func (c *Config) ReadOnly() bool { return c.isReadOnly }
@@ -53,6 +56,7 @@ func Load() *Config {
 		EmbeddingProvider: "ollama",
 		OllamaURL:         "http://localhost:11434",
 		OpenAIBaseURL:     "https://api.openai.com/v1",
+		DedupThreshold:    0.95,
 	}
 
 	if v := os.Getenv("QDRANT_ADMIN_URL"); v != "" {
@@ -91,6 +95,11 @@ func Load() *Config {
 	}
 	if v := os.Getenv("OPENAI_BASE_URL"); v != "" {
 		cfg.OpenAIBaseURL = v
+	}
+	if v := os.Getenv("QDRANT_DEDUP_THRESHOLD"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil && f >= 0 && f <= 1 {
+			cfg.DedupThreshold = f
+		}
 	}
 
 	return cfg

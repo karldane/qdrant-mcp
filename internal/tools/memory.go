@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/karldane/qdrant-mcp/internal/embed"
-	"github.com/karldane/qdrant-mcp/internal/normalize"
 	"github.com/karldane/qdrant-mcp/internal/readonly"
 
 	"github.com/karldane/mcp-framework/framework"
@@ -15,118 +17,138 @@ import (
 )
 
 // ---------------------------------------------------------------------------
-// UpsertMemoryTool
+// RememberTool — semantic memory write
 // ---------------------------------------------------------------------------
 
-type UpsertMemoryTool struct {
-	client   QdrantClient
-	cfg      readonly.ReadOnlyChecker
-	embedder embed.Provider
+type RememberTool struct {
+	client         QdrantClient
+	cfg            readonly.ReadOnlyChecker
+	embedder       embed.Provider
+	dedupThreshold float64
 }
 
-func NewUpsertMemoryTool(c QdrantClient, cfg readonly.ReadOnlyChecker, opts ...embed.Provider) *UpsertMemoryTool {
-	var ep embed.Provider
-	if len(opts) > 0 && opts[0] != nil {
-		ep = opts[0]
+func NewRememberTool(c QdrantClient, cfg readonly.ReadOnlyChecker, ep embed.Provider, dedupThreshold float64) *RememberTool {
+	if dedupThreshold <= 0 {
+		dedupThreshold = 0.95
 	}
-	return &UpsertMemoryTool{client: c, cfg: cfg, embedder: ep}
+	return &RememberTool{client: c, cfg: cfg, embedder: ep, dedupThreshold: dedupThreshold}
 }
 
-func (t *UpsertMemoryTool) Name() string { return "upsert_memory" }
+func (t *RememberTool) Name() string { return "remember" }
 
-func (t *UpsertMemoryTool) Description() string {
-	return "Store a fact, observation, or session data with optional TTL and tags."
+func (t *RememberTool) Description() string {
+	return "Store a fact, preference, or piece of knowledge for later recall. Automatically deduplicates against existing memories."
 }
 
-func (t *UpsertMemoryTool) Schema() mcp.ToolInputSchema {
+func (t *RememberTool) Schema() mcp.ToolInputSchema {
 	return mcp.ToolInputSchema{
 		Type: "object",
 		Properties: map[string]interface{}{
 			"content": map[string]interface{}{
 				"type":        "string",
-				"description": "Text content to store",
-			},
-			"embedding": map[string]interface{}{
-				"type":        "array",
-				"items":       map[string]interface{}{"type": "number"},
-				"description": "Vector embedding (optional — auto-generated from content when omitted and provider is configured)",
-			},
-			"metadata": map[string]interface{}{
-				"type":        "object",
-				"description": "Additional metadata",
+				"description": "The fact or preference to remember",
 			},
 			"tags": map[string]interface{}{
 				"type":        "array",
 				"items":       map[string]interface{}{"type": "string"},
-				"description": "Tags for categorization",
+				"description": "Topic labels for filtering",
 			},
-			"ttl_seconds": map[string]interface{}{
+			"confidence": map[string]interface{}{
 				"type":        "number",
-				"description": "Time-to-live in seconds (optional)",
+				"description": "Certainty 0.0–1.0 (default: 1.0)",
+				"default":     1.0,
+			},
+			"ttl_days": map[string]interface{}{
+				"type":        "integer",
+				"description": "Auto-expire after N days (default: no expiry)",
+			},
+			"source": map[string]interface{}{
+				"type":        "string",
+				"description": "Where this fact came from",
 			},
 		},
 		Required: []string{"content"},
 	}
 }
 
-func (t *UpsertMemoryTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *RememberTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return "", err
 	}
 
 	content, _ := args["content"].(string)
+	if content == "" {
+		return "", fmt.Errorf("content is required")
+	}
 
-	// Build vector: use supplied embedding if present, otherwise auto-embed.
+	// Embed the content.
 	var vector []float64
-	if v, ok := args["embedding"].([]interface{}); ok && len(v) > 0 {
-		vector = make([]float64, 0, len(v))
-		for _, f := range v {
-			if f, ok := f.(float64); ok {
-				vector = append(vector, f)
+	var embedErr error
+	if t.embedder != nil {
+		vector, embedErr = t.embedder.Embed(ctx, content)
+		if embedErr != nil {
+			return "", fmt.Errorf("embed content: %w", embedErr)
+		}
+	}
+
+	// Deduplication: search for near-identical semantic memories.
+	action := "created"
+	id := uuid.New().String()
+
+	if len(vector) > 0 {
+		dupes, err := t.client.Search(ctx, vector, 1, map[string]interface{}{"memory_type": "semantic"})
+		if err == nil && len(dupes) > 0 && float64(dupes[0].Score) >= t.dedupThreshold {
+			// Update existing instead of creating new.
+			id = dupes[0].ID
+			action = "updated"
+			updatePayload := map[string]interface{}{
+				"content": content,
+				"updated": timestampf(),
 			}
-		}
-	} else if t.embedder != nil && content != "" {
-		var err error
-		vector, err = t.embedder.Embed(ctx, content)
-		if err != nil {
-			return "", fmt.Errorf("auto-embed content: %w", err)
+			if conf, ok := args["confidence"].(float64); ok {
+				updatePayload["confidence"] = conf
+			}
+			if err := t.client.SetPayload(ctx, id, updatePayload); err != nil {
+				return "", fmt.Errorf("update memory: %w", err)
+			}
+			out := map[string]interface{}{"id": id, "action": action, "content": content}
+			b, _ := json.Marshal(out)
+			return string(b), nil
 		}
 	}
 
-	metadata, _ := args["metadata"].(map[string]interface{})
-	if metadata == nil {
-		metadata = make(map[string]interface{})
+	// Build new point payload.
+	payload := map[string]interface{}{
+		"memory_type": "semantic",
+		"content":     content,
+		"created":     timestampf(),
+		"updated":     timestampf(),
+		"confidence":  1.0,
 	}
 
+	if conf, ok := args["confidence"].(float64); ok {
+		payload["confidence"] = conf
+	}
+	if src, ok := args["source"].(string); ok && src != "" {
+		payload["source"] = src
+	}
 	if tags, ok := args["tags"].([]interface{}); ok {
-		tagStrs := make([]string, 0, len(tags))
-		for _, tag := range tags {
-			if tag, ok := tag.(string); ok {
-				tagStrs = append(tagStrs, tag)
-			}
-		}
-		metadata["tags"] = tagStrs
+		payload["tags"] = tagsToIfaces(tags)
+	}
+	if ttlDays, ok := args["ttl_days"].(float64); ok && ttlDays > 0 {
+		payload["ttl"] = ttlFromDays(ttlDays)
 	}
 
-	metadata["content"] = content
-	metadata["type"] = "memory"
-	metadata["created"] = time.Now().Format(time.RFC3339)
-
-	if ttl, ok := args["ttl_seconds"].(float64); ok && ttl > 0 {
-		expires := time.Now().Add(time.Duration(ttl) * time.Second)
-		metadata["ttl"] = expires.Format(time.RFC3339)
+	if err := t.client.UpsertPoint(ctx, id, vector, payload); err != nil {
+		return "", fmt.Errorf("store memory: %w", err)
 	}
 
-	id := fmt.Sprintf("mem_%d", time.Now().UnixNano())
-
-	if err := t.client.UpsertPoint(ctx, id, vector, metadata); err != nil {
-		return "", fmt.Errorf("upsert memory: %w", err)
-	}
-
-	return fmt.Sprintf(`{"success": true, "id": "%s"}`, id), nil
+	out := map[string]interface{}{"id": id, "action": action, "content": content}
+	b, _ := json.Marshal(out)
+	return string(b), nil
 }
 
-func (t *UpsertMemoryTool) GetEnforcerProfile() *framework.EnforcerProfile {
+func (t *RememberTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskMed),
 		framework.WithImpact(framework.ImpactWrite),
@@ -136,124 +158,161 @@ func (t *UpsertMemoryTool) GetEnforcerProfile() *framework.EnforcerProfile {
 }
 
 // ---------------------------------------------------------------------------
-// SearchMemoryTool
+// RecallTool — semantic memory read
 // ---------------------------------------------------------------------------
 
-type SearchMemoryTool struct {
+type RecallTool struct {
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
 }
 
-func NewSearchMemoryTool(c QdrantClient, cfg readonly.ReadOnlyChecker, opts ...embed.Provider) *SearchMemoryTool {
-	var ep embed.Provider
-	if len(opts) > 0 && opts[0] != nil {
-		ep = opts[0]
-	}
-	return &SearchMemoryTool{client: c, cfg: cfg, embedder: ep}
+func NewRecallTool(c QdrantClient, cfg readonly.ReadOnlyChecker, ep embed.Provider) *RecallTool {
+	return &RecallTool{client: c, cfg: cfg, embedder: ep}
 }
 
-func (t *SearchMemoryTool) Name() string { return "search_memory" }
+func (t *RecallTool) Name() string { return "recall" }
 
-func (t *SearchMemoryTool) Description() string {
-	return "Search recent or related facts using semantic similarity."
+func (t *RecallTool) Description() string {
+	return "Retrieve facts semantically relevant to a query. Filters expired memories, ranks by relevance."
 }
 
-func (t *SearchMemoryTool) Schema() mcp.ToolInputSchema {
+func (t *RecallTool) Schema() mcp.ToolInputSchema {
 	return mcp.ToolInputSchema{
 		Type: "object",
 		Properties: map[string]interface{}{
 			"query": map[string]interface{}{
 				"type":        "string",
-				"description": "Search query text",
+				"description": "What to search for",
 			},
-			"query_embedding": map[string]interface{}{
+			"tags": map[string]interface{}{
 				"type":        "array",
-				"items":       map[string]interface{}{"type": "number"},
-				"description": "Pre-computed query vector (optional — auto-generated when omitted and provider is configured)",
+				"items":       map[string]interface{}{"type": "string"},
+				"description": "Optional tag filter",
 			},
 			"limit": map[string]interface{}{
-				"type":        "number",
-				"description": "Maximum results",
+				"type":        "integer",
+				"description": "Max results (default: 5, max: 20)",
 				"default":     5,
 			},
-			"filter": map[string]interface{}{
-				"type":        "object",
-				"description": "Filter by metadata fields",
+			"min_score": map[string]interface{}{
+				"type":        "number",
+				"description": "Minimum similarity threshold (default: 0.0)",
+				"default":     0.0,
+			},
+			"recency_bias": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Weight recent memories higher (default: false)",
+				"default":     false,
 			},
 		},
 		Required: []string{"query"},
 	}
 }
 
-func (t *SearchMemoryTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *RecallTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
 	query, _ := args["query"].(string)
-
-	// Build query vector: use supplied embedding if present, otherwise auto-embed.
-	var vector []float64
-	if v, ok := args["query_embedding"].([]interface{}); ok && len(v) > 0 {
-		vector = make([]float64, 0, len(v))
-		for _, f := range v {
-			if f, ok := f.(float64); ok {
-				vector = append(vector, f)
-			}
-		}
-	} else if t.embedder != nil && query != "" {
-		var err error
-		vector, err = t.embedder.Embed(ctx, query)
-		if err != nil {
-			return "", fmt.Errorf("auto-embed query: %w", err)
-		}
+	if query == "" {
+		return "", fmt.Errorf("query is required")
 	}
 
 	limit := 5
-	if l, ok := args["limit"].(float64); ok {
+	if l, ok := args["limit"].(float64); ok && l > 0 {
 		limit = int(l)
+		if limit > 20 {
+			limit = 20
+		}
+	}
+	minScore := 0.0
+	if ms, ok := args["min_score"].(float64); ok {
+		minScore = ms
+	}
+	recencyBias, _ := args["recency_bias"].(bool)
+
+	// Embed query.
+	var vector []float64
+	if t.embedder != nil {
+		var err error
+		vector, err = t.embedder.Embed(ctx, query)
+		if err != nil {
+			return "", fmt.Errorf("embed query: %w", err)
+		}
 	}
 
-	filter, _ := args["filter"].(map[string]interface{})
-	if filter == nil {
-		filter = make(map[string]interface{})
-	}
-	filter["type"] = "memory"
+	filter := map[string]interface{}{"memory_type": "semantic"}
+	// Tag filter: if exactly one tag provided via flat string, use it.
+	// (Full multi-tag filtering needs richer Qdrant filter support, handled via scroll.)
 
-	results, err := t.client.Search(ctx, vector, limit, filter)
+	results, err := t.client.Search(ctx, vector, limit*2, filter) // over-fetch to allow TTL filtering
 	if err != nil {
-		return "", fmt.Errorf("search memory: %w", err)
+		return "", fmt.Errorf("recall: %w", err)
 	}
 
-	memories := make([]*normalize.Memory, 0, len(results))
+	// Tag filter post-processing.
+	var tagFilter []string
+	if tags, ok := args["tags"].([]interface{}); ok {
+		tagFilter = ifacesToStrings(tags)
+	}
+
+	type memoryOut struct {
+		ID         string   `json:"id"`
+		Content    string   `json:"content"`
+		Tags       []string `json:"tags,omitempty"`
+		Confidence float64  `json:"confidence"`
+		Score      float32  `json:"score"`
+		AgeDays    float64  `json:"age_days"`
+	}
+
+	now := time.Now().UTC()
+	memories := make([]memoryOut, 0, len(results))
 	for _, r := range results {
-		m := &normalize.Memory{
-			Metadata: r.Payload,
+		if float64(r.Score) < minScore {
+			continue
 		}
-		if content, ok := r.Payload["content"].(string); ok {
-			m.Content = content
-		}
-		if tags, ok := r.Payload["tags"].([]interface{}); ok {
-			tagStrs := make([]string, 0, len(tags))
-			for _, tag := range tags {
-				if tag, ok := tag.(string); ok {
-					tagStrs = append(tagStrs, tag)
-				}
+		// TTL check.
+		if ttl := payloadString(r.Payload, "ttl"); ttl != "" {
+			if t2, err := time.Parse(time.RFC3339, ttl); err == nil && now.After(t2) {
+				continue
 			}
-			m.Tags = tagStrs
 		}
-		m.ID = r.ID
-		m.Score = r.Score
+		// Tag filter.
+		if len(tagFilter) > 0 {
+			tags := ifacesToStrings(r.Payload["tags"])
+			if !hasAnyTag(tags, tagFilter) {
+				continue
+			}
+		}
+
+		created := payloadString(r.Payload, "created")
+		m := memoryOut{
+			ID:         r.ID,
+			Content:    payloadString(r.Payload, "content"),
+			Tags:       ifacesToStrings(r.Payload["tags"]),
+			Confidence: payloadFloat(r.Payload, "confidence", 1.0),
+			Score:      r.Score,
+			AgeDays:    ageDays(created),
+		}
 		memories = append(memories, m)
+		if len(memories) >= limit {
+			break
+		}
 	}
 
-	output := map[string]interface{}{
-		"memories": memories,
-		"count":    len(memories),
+	// Recency bias: re-sort by score * recency_factor.
+	if recencyBias && len(memories) > 1 {
+		sort.Slice(memories, func(i, j int) bool {
+			wi := float64(memories[i].Score) / (1 + memories[i].AgeDays)
+			wj := float64(memories[j].Score) / (1 + memories[j].AgeDays)
+			return wi > wj
+		})
 	}
 
-	b, _ := json.Marshal(output)
+	out := map[string]interface{}{"memories": memories, "count": len(memories)}
+	b, _ := json.Marshal(out)
 	return string(b), nil
 }
 
-func (t *SearchMemoryTool) GetEnforcerProfile() *framework.EnforcerProfile {
+func (t *RecallTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskLow),
 		framework.WithImpact(framework.ImpactRead),
@@ -264,80 +323,276 @@ func (t *SearchMemoryTool) GetEnforcerProfile() *framework.EnforcerProfile {
 }
 
 // ---------------------------------------------------------------------------
-// DeleteMemoryTool
+// ForgetTool — semantic memory delete
 // ---------------------------------------------------------------------------
 
-type DeleteMemoryTool struct {
-	client QdrantClient
-	cfg    readonly.ReadOnlyChecker
+type ForgetTool struct {
+	client   QdrantClient
+	cfg      readonly.ReadOnlyChecker
+	embedder embed.Provider
 }
 
-func NewDeleteMemoryTool(c QdrantClient, cfg readonly.ReadOnlyChecker) *DeleteMemoryTool {
-	return &DeleteMemoryTool{client: c, cfg: cfg}
+func NewForgetTool(c QdrantClient, cfg readonly.ReadOnlyChecker, ep embed.Provider) *ForgetTool {
+	return &ForgetTool{client: c, cfg: cfg, embedder: ep}
 }
 
-func (t *DeleteMemoryTool) Name() string { return "delete_memory" }
+func (t *ForgetTool) Name() string { return "forget" }
 
-func (t *DeleteMemoryTool) Description() string {
-	return "Delete memories by ID list or by tag filter."
+func (t *ForgetTool) Description() string {
+	return "Delete one or more memories by ID, by tag, or by semantic match."
 }
 
-func (t *DeleteMemoryTool) Schema() mcp.ToolInputSchema {
+func (t *ForgetTool) Schema() mcp.ToolInputSchema {
 	return mcp.ToolInputSchema{
 		Type: "object",
 		Properties: map[string]interface{}{
-			"ids": map[string]interface{}{
+			"id": map[string]interface{}{
+				"type":        "string",
+				"description": "Delete a specific memory by UUID",
+			},
+			"query": map[string]interface{}{
+				"type":        "string",
+				"description": "Semantic search to find memories to forget",
+			},
+			"tags": map[string]interface{}{
 				"type":        "array",
 				"items":       map[string]interface{}{"type": "string"},
-				"description": "Memory point IDs to delete",
+				"description": "Delete all memories with these tags",
 			},
-			"tag": map[string]interface{}{
-				"type":        "string",
-				"description": "Delete all memories with this tag",
+			"confirm": map[string]interface{}{
+				"type":        "boolean",
+				"description": "Skip confirmation gate — delete immediately (default: false)",
+				"default":     false,
+			},
+			"limit": map[string]interface{}{
+				"type":        "integer",
+				"description": "Max memories to delete when using query (default: 5)",
+				"default":     5,
 			},
 		},
 	}
 }
 
-func (t *DeleteMemoryTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return "", err
 	}
 
-	var ids []string
-	if v, ok := args["ids"].([]interface{}); ok {
-		for _, id := range v {
-			if s, ok := id.(string); ok {
-				ids = append(ids, s)
-			}
-		}
+	id, _ := args["id"].(string)
+	query, _ := args["query"].(string)
+	tags, _ := args["tags"].([]interface{})
+	confirm, _ := args["confirm"].(bool)
+	limit := 5
+	if l, ok := args["limit"].(float64); ok && l > 0 {
+		limit = int(l)
 	}
 
-	tag, _ := args["tag"].(string)
-
-	if len(ids) == 0 && tag == "" {
-		return "", fmt.Errorf("must provide either ids or tag")
+	if id == "" && query == "" && len(tags) == 0 {
+		return "", fmt.Errorf("must provide id, query, or tags")
 	}
 
-	if len(ids) > 0 {
-		if err := t.client.DeletePoints(ctx, ids, nil); err != nil {
-			return "", fmt.Errorf("delete memory: %w", err)
+	var deletedIDs []string
+
+	// Direct ID delete.
+	if id != "" {
+		if err := t.client.DeletePoints(ctx, []string{id}, nil); err != nil {
+			return "", fmt.Errorf("forget: %w", err)
 		}
-	} else {
-		filter := map[string]interface{}{"type": "memory", "tags": tag}
+		deletedIDs = []string{id}
+	}
+
+	// Tag-based delete.
+	if len(tags) > 0 {
+		filter := map[string]interface{}{"memory_type": "semantic", "tags": tags[0]}
 		if err := t.client.DeletePoints(ctx, nil, filter); err != nil {
-			return "", fmt.Errorf("delete memory: %w", err)
+			return "", fmt.Errorf("forget by tag: %w", err)
 		}
 	}
 
-	return `{"success": true}`, nil
+	// Semantic query delete.
+	if query != "" && t.embedder != nil {
+		vector, err := t.embedder.Embed(ctx, query)
+		if err != nil {
+			return "", fmt.Errorf("embed query: %w", err)
+		}
+		results, err := t.client.Search(ctx, vector, limit, map[string]interface{}{"memory_type": "semantic"})
+		if err != nil {
+			return "", fmt.Errorf("search for forget: %w", err)
+		}
+		if !confirm {
+			// Safety gate: return matches without deleting.
+			previews := make([]map[string]interface{}, 0, len(results))
+			for _, r := range results {
+				previews = append(previews, map[string]interface{}{
+					"id":      r.ID,
+					"content": payloadString(r.Payload, "content"),
+					"score":   r.Score,
+				})
+			}
+			b, _ := json.Marshal(map[string]interface{}{
+				"pending_delete": previews,
+				"message":        "Call forget again with confirm=true to delete these memories",
+			})
+			return string(b), nil
+		}
+		ids := make([]string, 0, len(results))
+		for _, r := range results {
+			ids = append(ids, r.ID)
+		}
+		if len(ids) > 0 {
+			if err := t.client.DeletePoints(ctx, ids, nil); err != nil {
+				return "", fmt.Errorf("forget: %w", err)
+			}
+			deletedIDs = append(deletedIDs, ids...)
+		}
+	}
+
+	out := map[string]interface{}{"deleted": len(deletedIDs), "ids": deletedIDs}
+	b, _ := json.Marshal(out)
+	return string(b), nil
 }
 
-func (t *DeleteMemoryTool) GetEnforcerProfile() *framework.EnforcerProfile {
+func (t *ForgetTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	return framework.NewEnforcerProfile(
 		framework.WithRisk(framework.RiskHigh),
 		framework.WithImpact(framework.ImpactDelete),
 		framework.WithPII(true),
+		framework.WithIdempotent(false),
+	)
+}
+
+// ---------------------------------------------------------------------------
+// ReflectTool — semantic memory synthesis
+// ---------------------------------------------------------------------------
+
+type ReflectTool struct {
+	client   QdrantClient
+	cfg      readonly.ReadOnlyChecker
+	embedder embed.Provider
+}
+
+func NewReflectTool(c QdrantClient, cfg readonly.ReadOnlyChecker, ep embed.Provider) *ReflectTool {
+	return &ReflectTool{client: c, cfg: cfg, embedder: ep}
+}
+
+func (t *ReflectTool) Name() string { return "reflect" }
+
+func (t *ReflectTool) Description() string {
+	return "Synthesise a prose summary of what is known about a topic from semantic memory. Read-only."
+}
+
+func (t *ReflectTool) Schema() mcp.ToolInputSchema {
+	return mcp.ToolInputSchema{
+		Type: "object",
+		Properties: map[string]interface{}{
+			"topic": map[string]interface{}{
+				"type":        "string",
+				"description": "Subject to reflect on",
+			},
+			"limit": map[string]interface{}{
+				"type":        "integer",
+				"description": "Max memories to draw from (default: 10)",
+				"default":     10,
+			},
+			"tags": map[string]interface{}{
+				"type":        "array",
+				"items":       map[string]interface{}{"type": "string"},
+				"description": "Constrain to tagged memories",
+			},
+		},
+		Required: []string{"topic"},
+	}
+}
+
+func (t *ReflectTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+	topic, _ := args["topic"].(string)
+	if topic == "" {
+		return "", fmt.Errorf("topic is required")
+	}
+
+	limit := 10
+	if l, ok := args["limit"].(float64); ok && l > 0 {
+		limit = int(l)
+	}
+
+	var vector []float64
+	if t.embedder != nil {
+		var err error
+		vector, err = t.embedder.Embed(ctx, topic)
+		if err != nil {
+			return "", fmt.Errorf("embed topic: %w", err)
+		}
+	}
+
+	results, err := t.client.Search(ctx, vector, limit, map[string]interface{}{"memory_type": "semantic"})
+	if err != nil {
+		return "", fmt.Errorf("reflect search: %w", err)
+	}
+
+	// Tag filter.
+	var tagFilter []string
+	if tags, ok := args["tags"].([]interface{}); ok {
+		tagFilter = ifacesToStrings(tags)
+	}
+
+	now := time.Now().UTC()
+	var sourceIDs []string
+	var facts []string
+	for i, r := range results {
+		if ttl := payloadString(r.Payload, "ttl"); ttl != "" {
+			if t2, err := time.Parse(time.RFC3339, ttl); err == nil && now.After(t2) {
+				continue
+			}
+		}
+		if len(tagFilter) > 0 {
+			tags := ifacesToStrings(r.Payload["tags"])
+			if !hasAnyTag(tags, tagFilter) {
+				continue
+			}
+		}
+		content := payloadString(r.Payload, "content")
+		if content == "" {
+			continue
+		}
+		conf := payloadFloat(r.Payload, "confidence", 1.0)
+		age := humanAge(payloadString(r.Payload, "created"))
+		facts = append(facts, fmt.Sprintf("%d. %s [confidence: %.2f, %s]", i+1, content, conf, age))
+		sourceIDs = append(sourceIDs, r.ID)
+	}
+
+	summary := fmt.Sprintf("Reflecting on \"%s\" — %d relevant facts known:\n\n%s",
+		topic, len(facts), strings.Join(facts, "\n"))
+
+	out := map[string]interface{}{
+		"summary": summary,
+		"sources": sourceIDs,
+		"count":   len(sourceIDs),
+	}
+	b, _ := json.Marshal(out)
+	return string(b), nil
+}
+
+func (t *ReflectTool) GetEnforcerProfile() *framework.EnforcerProfile {
+	return framework.NewEnforcerProfile(
+		framework.WithRisk(framework.RiskLow),
+		framework.WithImpact(framework.ImpactRead),
+		framework.WithPII(true),
 		framework.WithIdempotent(true),
 	)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// hasAnyTag returns true if any element of want appears in have.
+func hasAnyTag(have, want []string) bool {
+	for _, w := range want {
+		for _, h := range have {
+			if h == w {
+				return true
+			}
+		}
+	}
+	return false
 }

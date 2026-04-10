@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	qdrantclient "github.com/qdrant/go-client/qdrant"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // AdminOps is the subset of *qdrantclient.Client methods used during
@@ -51,6 +53,10 @@ func EnsureCollection(ctx context.Context, ops AdminOps, collection string, want
 			Distance: qdrantclient.Distance_Cosine,
 		}),
 	}); err != nil {
+		// AlreadyExists is safe to ignore — another process beat us to it.
+		if st, ok := status.FromError(err); ok && st.Code() == codes.AlreadyExists {
+			return nil
+		}
 		return fmt.Errorf("create collection %q: %w", collection, err)
 	}
 
@@ -66,12 +72,20 @@ func EnsureIndexes(ctx context.Context, ops AdminOps, collection string) error {
 	}
 
 	fields := []fieldSpec{
-		{"type", qdrantclient.FieldType_FieldTypeKeyword},
+		// new schema fields (memory_type replaces type)
+		{"memory_type", qdrantclient.FieldType_FieldTypeKeyword},
 		{"tags", qdrantclient.FieldType_FieldTypeKeyword},
-		{"session_id", qdrantclient.FieldType_FieldTypeKeyword},
+		{"event_type", qdrantclient.FieldType_FieldTypeKeyword},
+		{"status", qdrantclient.FieldType_FieldTypeKeyword},
+		{"cache_key", qdrantclient.FieldType_FieldTypeKeyword},
+		{"name", qdrantclient.FieldType_FieldTypeKeyword},
 		{"ttl", qdrantclient.FieldType_FieldTypeDatetime},
 		{"created", qdrantclient.FieldType_FieldTypeDatetime},
+		{"updated", qdrantclient.FieldType_FieldTypeDatetime},
 		{"content", qdrantclient.FieldType_FieldTypeText},
+		// legacy fields kept for backward compatibility
+		{"type", qdrantclient.FieldType_FieldTypeKeyword},
+		{"session_id", qdrantclient.FieldType_FieldTypeKeyword},
 	}
 
 	for _, f := range fields {

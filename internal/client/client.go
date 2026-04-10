@@ -116,26 +116,56 @@ func (c *Client) EnsureCollection(ctx context.Context) error {
 }
 
 func (c *Client) UpsertPoint(ctx context.Context, id string, vector []float64, payload map[string]interface{}) error {
+	if len(vector) == 0 {
+		return fmt.Errorf("vector is required: upsert_point requires a pre-computed embedding vector; use upsert_memory for automatic embedding")
+	}
+
 	valueMap, err := qdrant.TryValueMap(payload)
 	if err != nil {
 		return fmt.Errorf("convert payload: %w", err)
 	}
 
+	f32 := make([]float32, len(vector))
+	for i, v := range vector {
+		f32[i] = float32(v)
+	}
+
 	point := &qdrant.PointStruct{
 		Id:      &qdrant.PointId{PointIdOptions: &qdrant.PointId_Uuid{Uuid: id}},
 		Payload: valueMap,
-	}
-
-	if len(vector) > 0 {
-		f32 := make([]float32, len(vector))
-		for i, v := range vector {
-			f32[i] = float32(v)
-		}
-		point.Vectors = qdrant.NewVectors(f32...)
+		Vectors: qdrant.NewVectors(f32...),
 	}
 
 	_, err = c.userClient.Upsert(ctx, &qdrant.UpsertPoints{
 		CollectionName: c.collection,
+		Wait:           qdrant.PtrOf(true),
+		Points:         []*qdrant.PointStruct{point},
+	})
+	return err
+}
+
+// UpsertPayload stores a point with the given payload but no meaningful vector.
+// A zero-valued vector of the configured size is used as a placeholder so that
+// Qdrant's collection (which requires vectors) accepts the point. Use this for
+// sessions and other payload-only records where semantic search is not needed.
+func (c *Client) UpsertPayload(ctx context.Context, id string, payload map[string]interface{}) error {
+	valueMap, err := qdrant.TryValueMap(payload)
+	if err != nil {
+		return fmt.Errorf("convert payload: %w", err)
+	}
+
+	// Zero vector — not used for similarity search, just satisfies the collection schema.
+	zeroVec := make([]float32, c.cfg.VectorSize)
+
+	point := &qdrant.PointStruct{
+		Id:      &qdrant.PointId{PointIdOptions: &qdrant.PointId_Uuid{Uuid: id}},
+		Payload: valueMap,
+		Vectors: qdrant.NewVectors(zeroVec...),
+	}
+
+	_, err = c.userClient.Upsert(ctx, &qdrant.UpsertPoints{
+		CollectionName: c.collection,
+		Wait:           qdrant.PtrOf(true),
 		Points:         []*qdrant.PointStruct{point},
 	})
 	return err
@@ -242,6 +272,43 @@ func (c *Client) GetPoint(ctx context.Context, id string) (*GetResult, error) {
 	}, nil
 }
 
+// SetPayload merges the given fields into an existing point's payload without
+// replacing the vector or other payload fields.
+func (c *Client) SetPayload(ctx context.Context, id string, payload map[string]interface{}) error {
+	valueMap, err := qdrant.TryValueMap(payload)
+	if err != nil {
+		return fmt.Errorf("convert payload: %w", err)
+	}
+
+	_, err = c.userClient.SetPayload(ctx, &qdrant.SetPayloadPoints{
+		CollectionName: c.collection,
+		Wait:           qdrant.PtrOf(true),
+		Payload:        valueMap,
+		PointsSelector: qdrant.NewPointsSelector(
+			&qdrant.PointId{PointIdOptions: &qdrant.PointId_Uuid{Uuid: id}},
+		),
+	})
+	return err
+}
+
+// Count returns the number of points matching the given filter. A nil or empty
+// filter counts all points in the collection.
+func (c *Client) Count(ctx context.Context, filter map[string]interface{}) (int64, error) {
+	req := &qdrant.CountPoints{
+		CollectionName: c.collection,
+		Exact:          qdrant.PtrOf(false),
+	}
+	if len(filter) > 0 {
+		req.Filter = &qdrant.Filter{Must: filterToQdrant(filter)}
+	}
+
+	resp, err := c.userClient.Count(ctx, req)
+	if err != nil {
+		return 0, err
+	}
+	return int64(resp), nil
+}
+
 func (c *Client) DeletePoints(ctx context.Context, ids []string, filter map[string]interface{}) error {
 	if len(ids) > 0 {
 		pointIDs := make([]*qdrant.PointId, 0, len(ids))
@@ -250,6 +317,7 @@ func (c *Client) DeletePoints(ctx context.Context, ids []string, filter map[stri
 		}
 		_, err := c.userClient.Delete(ctx, &qdrant.DeletePoints{
 			CollectionName: c.collection,
+			Wait:           qdrant.PtrOf(true),
 			Points:         qdrant.NewPointsSelector(pointIDs...),
 		})
 		return err
@@ -257,6 +325,7 @@ func (c *Client) DeletePoints(ctx context.Context, ids []string, filter map[stri
 
 	_, err := c.userClient.Delete(ctx, &qdrant.DeletePoints{
 		CollectionName: c.collection,
+		Wait:           qdrant.PtrOf(true),
 		Points:         qdrant.NewPointsSelectorFilter(&qdrant.Filter{Must: filterToQdrant(filter)}),
 	})
 	return err

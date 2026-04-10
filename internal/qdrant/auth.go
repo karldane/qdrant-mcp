@@ -23,10 +23,10 @@ func GenerateUserJWT(adminKey, username, collection string) (string, error) {
 	payload := base64url(mustJSON(map[string]interface{}{
 		"sub": username,
 		"exp": time.Now().Add(time.Hour).Unix(),
-		"access": map[string]interface{}{
-			"collections": map[string]interface{}{
-				collection: []string{"read", "write"},
-			},
+		// Qdrant JWT RBAC format: array of collection-access objects.
+		// See https://qdrant.tech/documentation/operations/security/#granular-access-control-with-jwt
+		"access": []map[string]interface{}{
+			{"collection": collection, "access": "rw"},
 		},
 	}))
 

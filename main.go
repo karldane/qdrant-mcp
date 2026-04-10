@@ -94,21 +94,25 @@ func NewServer() (*Server, error) {
 	s := &Server{
 		Server: framework.NewServerWithConfig(&framework.Config{
 			Name:         "qdrant-mcp",
-			Version:      "0.2.0",
+			Version:      "0.3.0",
 			WriteEnabled: !cfg.ReadOnly(),
-			Instructions: `Qdrant MCP Server
+			Instructions: `Qdrant MCP Server v0.3.0
 
-A vector database server providing semantic search and storage capabilities.
+A vector database server providing agent memory capabilities organised by cognitive memory type.
 
 Available tools:
-- Core CRUD:    upsert_point, search_points, scroll_points, get_point, delete_points
-- Agent Memory: upsert_memory, search_memory, delete_memory
-- Sessions:     save_session, load_session, list_sessions, delete_session
-- Cache:        upsert_cache, get_cache, invalidate_cache
-- Admin:        collection_info
+- Semantic Memory:  remember, recall, forget, reflect
+- Episodic Memory:  log_event, recall_events, summarise_period
+- Procedural Memory: learn_procedure, recall_procedure, update_procedure
+- Working Memory:   save_progress, resume_task, list_tasks, abandon_task
+- Cache:            store_result, lookup_result, invalidate_result
+- Introspection:    what_do_i_know, memory_stats
+- Core CRUD:        upsert_point, search_points, scroll_points, get_point, delete_points
+- Admin:            collection_info
 
 All operations use the user's private collection for data isolation.
-Embedding is automatic when EMBEDDING_PROVIDER is configured.`,
+Embedding is automatic when EMBEDDING_PROVIDER is configured.
+Deduplication is applied on remember (threshold configurable via QDRANT_DEDUP_THRESHOLD).`,
 		}),
 	}
 
@@ -117,28 +121,43 @@ Embedding is automatic when EMBEDDING_PROVIDER is configured.`,
 }
 
 func (s *Server) registerTools(c *client.Client, cfg *config.Config, ep embed.Provider) {
-	// Core CRUD
+	// Semantic Memory
+	s.Server.RegisterTool(tools.NewRememberTool(c, cfg, ep, cfg.DedupThreshold))
+	s.Server.RegisterTool(tools.NewRecallTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewForgetTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewReflectTool(c, cfg, ep))
+
+	// Episodic Memory
+	s.Server.RegisterTool(tools.NewLogEventTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewRecallEventsTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewSummarisePeriodTool(c, cfg, ep))
+
+	// Procedural Memory
+	s.Server.RegisterTool(tools.NewLearnProcedureTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewRecallProcedureTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewUpdateProcedureTool(c, cfg, ep))
+
+	// Working Memory (Tasks)
+	s.Server.RegisterTool(tools.NewSaveProgressTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewResumeTaskTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewListTasksTool(c, cfg))
+	s.Server.RegisterTool(tools.NewAbandonTaskTool(c, cfg))
+
+	// Cache
+	s.Server.RegisterTool(tools.NewStoreResultTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewLookupResultTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewInvalidateResultTool(c, cfg))
+
+	// Introspection
+	s.Server.RegisterTool(tools.NewWhatDoIKnowTool(c, cfg, ep))
+	s.Server.RegisterTool(tools.NewMemoryStatsTool(c, cfg))
+
+	// Core CRUD (raw primitives)
 	s.Server.RegisterTool(tools.NewUpsertPointTool(c, cfg))
 	s.Server.RegisterTool(tools.NewSearchPointsTool(c, cfg))
 	s.Server.RegisterTool(tools.NewScrollPointsTool(c, cfg))
 	s.Server.RegisterTool(tools.NewGetPointTool(c, cfg))
 	s.Server.RegisterTool(tools.NewDeletePointsTool(c, cfg))
-
-	// Agent Memory (with embed provider)
-	s.Server.RegisterTool(tools.NewUpsertMemoryTool(c, cfg, ep))
-	s.Server.RegisterTool(tools.NewSearchMemoryTool(c, cfg, ep))
-	s.Server.RegisterTool(tools.NewDeleteMemoryTool(c, cfg))
-
-	// Sessions
-	s.Server.RegisterTool(tools.NewListSessionsTool(c, cfg))
-	s.Server.RegisterTool(tools.NewLoadSessionTool(c, cfg))
-	s.Server.RegisterTool(tools.NewSaveSessionTool(c, cfg))
-	s.Server.RegisterTool(tools.NewDeleteSessionTool(c, cfg))
-
-	// Cache
-	s.Server.RegisterTool(tools.NewUpsertCacheTool(c, cfg))
-	s.Server.RegisterTool(tools.NewGetCacheTool(c, cfg))
-	s.Server.RegisterTool(tools.NewInvalidateCacheTool(c, cfg))
 
 	// Admin / diagnostics
 	s.Server.RegisterTool(tools.NewCollectionInfoTool(c, cfg))
@@ -155,7 +174,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	fmt.Fprintln(os.Stderr, "qdrant-mcp v0.2.0 initialized (JWT RBAC)")
+	fmt.Fprintln(os.Stderr, "qdrant-mcp v0.3.0 initialized (JWT RBAC)")
 	fmt.Fprintln(os.Stderr, "Ready to serve requests via stdio...")
 
 	if err := server.Start(); err != nil {

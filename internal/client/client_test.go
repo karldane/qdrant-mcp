@@ -1,6 +1,7 @@
 package client
 
 import (
+	"context"
 	"testing"
 
 	"github.com/karldane/qdrant-mcp/internal/config"
@@ -257,4 +258,29 @@ func TestValueMapToInterface_Values(t *testing.T) {
 	result := valueMapToInterface(m)
 	assert.Equal(t, "test", result["name"])
 	assert.Equal(t, int64(7), result["num"])
+}
+
+// ---------------------------------------------------------------------------
+// UpsertPoint — early vector validation
+// ---------------------------------------------------------------------------
+
+func TestUpsertPoint_RequiresVector(t *testing.T) {
+	// UpsertPoint must return a clear error before calling Qdrant when no vector is provided.
+	// We use a Client constructed against a non-existent server; the early validation
+	// fires before any network call is made, so no live server is needed.
+	cfg := &config.Config{
+		AdminURL:   "http://localhost:19999",
+		Collection: "test",
+		VectorSize: 768,
+	}
+	c, err := New(cfg)
+	require.NoError(t, err)
+
+	err = c.UpsertPoint(context.Background(), "550e8400-e29b-41d4-a716-446655440000", nil, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "vector is required")
+
+	err = c.UpsertPoint(context.Background(), "550e8400-e29b-41d4-a716-446655440000", []float64{}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "vector is required")
 }

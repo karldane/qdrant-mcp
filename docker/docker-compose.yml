@@ -22,9 +22,7 @@ services:
       start_period: 10s
 
   ollama:
-    build:
-      context: .
-      dockerfile: Dockerfile.ollama
+    image: ollama/ollama:latest
     container_name: mcp-ollama
     restart: unless-stopped
     ports:
@@ -32,15 +30,12 @@ services:
     volumes:
       - ollama_models:/root/.ollama
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
-      interval: 15s
-      timeout: 10s
-      retries: 5
-      start_period: 20s
+      test: ["CMD", "kill", "-0", "1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 30s
 
-  # One-shot sidecar that pulls the embedding model after Ollama is healthy.
-  # Exits cleanly once the pull is done — won't re-pull on subsequent starts
-  # because the model is cached in the ollama_models volume.
   ollama-model-pull:
     image: curlimages/curl:latest
     container_name: mcp-ollama-model-pull
@@ -50,12 +45,16 @@ services:
     restart: "no"
     entrypoint: >
       sh -c "
-        echo 'Pulling nomic-embed-text embedding model...' &&
+        echo 'Waiting for Ollama HTTP API...' &&
+        until curl -sf http://ollama:11434/api/tags > /dev/null; do
+          echo 'Not ready yet, retrying in 3s...' && sleep 3;
+        done &&
+        echo 'Pulling nomic-embed-text...' &&
         curl -sf http://ollama:11434/api/pull
           -H 'Content-Type: application/json'
           -d '{"name": "nomic-embed-text"}'
           --max-time 600 &&
-        echo 'Model pull complete.'
+        echo 'Done.'
       "
 
 volumes:

@@ -53,22 +53,17 @@ func TestGenerateUserJWT_claims(t *testing.T) {
 	// sub must match the supplied username.
 	assert.Equal(t, "alice@example.com", claims["sub"])
 
-	// access.collections must be scoped to the supplied collection only.
-	access, ok := claims["access"].(map[string]interface{})
-	require.True(t, ok, "access claim must be a JSON object")
+	// access must be an array of collection-access objects (Qdrant JWT RBAC format).
+	// Expected: [{"collection": "alice_at_example_com", "access": "rw"}]
+	accessRaw, ok := claims["access"].([]interface{})
+	require.True(t, ok, "access claim must be a JSON array")
+	require.Len(t, accessRaw, 1, "access array must contain exactly one entry")
 
-	collections, ok := access["collections"].(map[string]interface{})
-	require.True(t, ok, "access.collections must be a JSON object")
+	entry, ok := accessRaw[0].(map[string]interface{})
+	require.True(t, ok, "access[0] must be a JSON object")
 
-	perms, ok := collections["alice_at_example_com"].([]interface{})
-	require.True(t, ok, "access.collections[collection] must be an array")
-	assert.Len(t, perms, 2)
-
-	permStrs := make([]string, len(perms))
-	for i, p := range perms {
-		permStrs[i] = p.(string)
-	}
-	assert.ElementsMatch(t, []string{"read", "write"}, permStrs)
+	assert.Equal(t, "alice_at_example_com", entry["collection"], "access[0].collection must match collection param")
+	assert.Equal(t, "rw", entry["access"], "access[0].access must be \"rw\"")
 }
 
 func TestGenerateUserJWT_signature(t *testing.T) {

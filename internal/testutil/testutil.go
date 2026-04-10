@@ -17,15 +17,19 @@ import (
 // MockQdrantClient is a controllable implementation of the QdrantClient
 // interface.  Set the exported fields to pre-program responses.
 type MockQdrantClient struct {
-	UpsertErr  error
-	SearchRes  []client.SearchResult
-	SearchErr  error
-	ScrollRes  []client.ScrollResult
-	ScrollNext string
-	ScrollErr  error
-	GetRes     *client.GetResult
-	GetErr     error
-	DeleteErr  error
+	UpsertErr        error
+	UpsertPayloadErr error
+	SetPayloadErr    error
+	SearchRes        []client.SearchResult
+	SearchErr        error
+	ScrollRes        []client.ScrollResult
+	ScrollNext       string
+	ScrollErr        error
+	GetRes           *client.GetResult
+	GetErr           error
+	DeleteErr        error
+	CountResult      int64
+	CountErr         error
 
 	// CollectionInfoResult is returned by CollectionInfo.
 	CollectionInfoResult map[string]interface{}
@@ -34,6 +38,14 @@ type MockQdrantClient struct {
 
 func (m *MockQdrantClient) UpsertPoint(_ context.Context, _ string, _ []float64, _ map[string]interface{}) error {
 	return m.UpsertErr
+}
+
+func (m *MockQdrantClient) UpsertPayload(_ context.Context, _ string, _ map[string]interface{}) error {
+	return m.UpsertPayloadErr
+}
+
+func (m *MockQdrantClient) SetPayload(_ context.Context, _ string, _ map[string]interface{}) error {
+	return m.SetPayloadErr
 }
 
 func (m *MockQdrantClient) Search(_ context.Context, _ []float64, _ int, _ map[string]interface{}) ([]client.SearchResult, error) {
@@ -50,6 +62,10 @@ func (m *MockQdrantClient) GetPoint(_ context.Context, _ string) (*client.GetRes
 
 func (m *MockQdrantClient) DeletePoints(_ context.Context, _ []string, _ map[string]interface{}) error {
 	return m.DeleteErr
+}
+
+func (m *MockQdrantClient) Count(_ context.Context, _ map[string]interface{}) (int64, error) {
+	return m.CountResult, m.CountErr
 }
 
 func (m *MockQdrantClient) CollectionInfo(_ context.Context) (map[string]interface{}, error) {

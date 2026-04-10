@@ -4,96 +4,76 @@
 
 | Service | Purpose | Port |
 |---|---|---|
-| Qdrant | Vector database | `localhost:6333` (REST), `localhost:6334` (gRPC) |
+| Qdrant | Vector database with JWT RBAC | `localhost:6333` (REST), `localhost:6334` (gRPC) |
 | Ollama | Local embedding model server | `localhost:11434` |
-| ollama-model-pull | One-shot sidecar to pull the model | — |
+| ollama-model-pull | One-shot model download sidecar | — |
 
 ## Quick Start
 
 ```bash
 cp .env.example .env
-# Edit .env and set your API keys (see below)
+# Edit .env: paste two openssl rand -hex 32 values
 docker compose up -d
-docker compose logs -f ollama-model-pull  # watch the model pull
+docker compose logs -f ollama-model-pull   # watch the ~274MB model pull
 ```
-
-The first start downloads `nomic-embed-text` (~274MB). Subsequent starts skip
-the pull — the model is cached in the `ollama_models` volume.
 
 ## Generate API Keys
 
 ```bash
-openssl rand -hex 32   # run twice — once for each key
+openssl rand -hex 32   # run twice — one per key
 ```
 
-Paste the results into `.env`.
+## What QDRANT__SERVICE__JWT_RBAC=true does
 
-## Test the Services
-
-```bash
-# Qdrant health
-curl http://localhost:6333/healthz
-
-# Qdrant collections (requires API key)
-curl http://localhost:6333/collections \
-  -H "api-key: $(grep ^QDRANT_API_KEY .env | cut -d= -f2)"
-
-# Ollama: generate an embedding
-curl http://localhost:11434/api/embeddings \
-  -H "Content-Type: application/json" \
-  -d '{"model": "nomic-embed-text", "prompt": "hello world"}'
-```
-
-The embedding response should contain a 768-element float array.
+Enables collection-scoped JWT access control. The qdrant-mcp backend uses
+QDRANT_API_KEY as both the admin key and the JWT signing secret. It generates
+a short-lived (1h) JWT per process spawn that restricts the user to their own
+collection only. Without this flag, collection-level JWT restrictions are not
+enforced.
 
 ## Bridge Backend Config
 
 ```json
 {
-  "QDRANT_ADMIN_URL":    "http://qdrant.internal:6333",
-  "QDRANT_ADMIN_KEY":    "<value of QDRANT_API_KEY>",
-  "QDRANT_USER_SECRET":  "<openssl rand -hex 32>",
-  "QDRANT_HOST":         "qdrant.internal",
-  "QDRANT_OLLAMA_URL":   "http://ollama.internal:11434",
-  "QDRANT_VECTOR_SIZE":  "768",
-  "QDRANT_USERNAME":     "{{users.email}}",
-  "QDRANT_COLLECTION":   "{{users.email|sanitised}}"
+  "QDRANT_ADMIN_URL":   "http://localhost:6333",
+  "QDRANT_ADMIN_KEY":   "<QDRANT_API_KEY value>",
+  "QDRANT_OLLAMA_URL":  "http://localhost:11434",
+  "QDRANT_VECTOR_SIZE": "768",
+  "QDRANT_USERNAME":    "{{users.email}}",
+  "QDRANT_COLLECTION":  "{{users.email|sanitised}}"
 }
 ```
 
-For local testing use `localhost` in place of `*.internal`.
+Note: QDRANT_USER_SECRET is no longer used.
 
-## Important: QDRANT_VECTOR_SIZE
-
-`nomic-embed-text` produces **768-dimension** vectors.
-Set `QDRANT_VECTOR_SIZE=768` in the backend config to match.
-If you change embedding models, wipe Qdrant storage first:
+## Test the Services
 
 ```bash
-docker compose down -v && docker compose up -d
+# Qdrant health (no auth needed)
+curl http://localhost:6333/healthz
+
+# List collections (admin key required)
+curl http://localhost:6333/collections \
+  -H "api-key: $(grep ^QDRANT_API_KEY .env | cut -d= -f2)"
+
+# Ollama embedding (should return 768 floats)
+curl http://localhost:11434/api/embeddings \
+  -H "Content-Type: application/json" \
+  -d '{"model": "nomic-embed-text", "prompt": "hello world"}'
 ```
 
 ## Useful Commands
 
 ```bash
-docker compose up -d            # start everything
-docker compose down             # stop (data persists)
-docker compose down -v          # stop AND wipe all data
-docker compose logs -f          # tail all logs
-docker compose logs -f ollama   # ollama only
+docker compose up -d          # start
+docker compose down           # stop (data persists)
+docker compose down -v        # wipe all data and models
+docker compose logs -f        # all logs
 ```
 
-## GPU Acceleration (optional)
+## Notes
 
-If you have an NVIDIA GPU and nvidia-container-toolkit installed,
-add the following to the `ollama` service to accelerate embedding generation:
-
-```yaml
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
-```
+- QDRANT_VECTOR_SIZE must be 768 to match nomic-embed-text.
+  Changing models requires wiping Qdrant storage: docker compose down -v
+- Both ports are bound to 127.0.0.1 only.
+- The Ollama image lacks curl so its healthcheck uses kill -0 1.
