@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/karldane/qdrant-mcp/internal/normalize"
@@ -49,9 +50,9 @@ func (t *UpsertPointTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *UpsertPointTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *UpsertPointTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	id, _ := args["id"].(string)
@@ -67,10 +68,10 @@ func (t *UpsertPointTool) Handle(ctx context.Context, args map[string]interface{
 	payload, _ := args["payload"].(map[string]interface{})
 
 	if err := t.client.UpsertPoint(ctx, id, vector, payload); err != nil {
-		return "", fmt.Errorf("upsert point: %w", err)
+		return framework.TextResult(""), fmt.Errorf("upsert point: %w", err)
 	}
 
-	return fmt.Sprintf(`{"success": true, "id": "%s"}`, id), nil
+	return framework.TextResult(fmt.Sprintf(`{"success": true, "id": "%s"}`, id)), nil
 }
 
 func (t *UpsertPointTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -120,7 +121,7 @@ func (t *SearchPointsTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *SearchPointsTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *SearchPointsTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	var queryVector []float64
 	if v, ok := args["query_vector"].([]interface{}); ok {
 		queryVector = make([]float64, 0, len(v))
@@ -140,7 +141,7 @@ func (t *SearchPointsTool) Handle(ctx context.Context, args map[string]interface
 
 	results, err := t.client.Search(ctx, queryVector, limit, filter)
 	if err != nil {
-		return "", fmt.Errorf("search points: %w", err)
+		return framework.TextResult(""), fmt.Errorf("search points: %w", err)
 	}
 
 	points := make([]*normalize.Point, 0, len(results))
@@ -158,7 +159,7 @@ func (t *SearchPointsTool) Handle(ctx context.Context, args map[string]interface
 	}
 
 	b, _ := json.Marshal(output)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *SearchPointsTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -207,7 +208,7 @@ func (t *ScrollPointsTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *ScrollPointsTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *ScrollPointsTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	limit := 20
 	if l, ok := args["limit"].(float64); ok {
 		limit = int(l)
@@ -218,7 +219,7 @@ func (t *ScrollPointsTool) Handle(ctx context.Context, args map[string]interface
 
 	results, nextOffset, err := t.client.Scroll(ctx, limit, filter, offset)
 	if err != nil {
-		return "", fmt.Errorf("scroll points: %w", err)
+		return framework.TextResult(""), fmt.Errorf("scroll points: %w", err)
 	}
 
 	points := make([]*normalize.Point, 0, len(results))
@@ -236,7 +237,7 @@ func (t *ScrollPointsTool) Handle(ctx context.Context, args map[string]interface
 	}
 
 	b, _ := json.Marshal(output)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *ScrollPointsTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -276,12 +277,12 @@ func (t *GetPointTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *GetPointTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *GetPointTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	id, _ := args["id"].(string)
 
 	result, err := t.client.GetPoint(ctx, id)
 	if err != nil {
-		return "", fmt.Errorf("get point: %w", err)
+		return framework.TextResult(""), fmt.Errorf("get point: %w", err)
 	}
 
 	point := &normalize.Point{
@@ -291,7 +292,7 @@ func (t *GetPointTool) Handle(ctx context.Context, args map[string]interface{}) 
 	}
 
 	b, _ := json.Marshal(point)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *GetPointTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -335,9 +336,9 @@ func (t *DeletePointsTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *DeletePointsTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *DeletePointsTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	var ids []string
@@ -352,14 +353,14 @@ func (t *DeletePointsTool) Handle(ctx context.Context, args map[string]interface
 	filter, _ := args["filter"].(map[string]interface{})
 
 	if len(ids) == 0 && filter == nil {
-		return "", fmt.Errorf("must provide either ids or filter")
+		return framework.TextResult(""), errors.New("must provide either ids or filter")
 	}
 
 	if err := t.client.DeletePoints(ctx, ids, filter); err != nil {
-		return "", fmt.Errorf("delete points: %w", err)
+		return framework.TextResult(""), fmt.Errorf("delete points: %w", err)
 	}
 
-	return `{"success": true}`, nil
+	return framework.TextResult(`{"success": true}`), nil
 }
 
 func (t *DeletePointsTool) GetEnforcerProfile() *framework.EnforcerProfile {

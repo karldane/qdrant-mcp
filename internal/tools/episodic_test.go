@@ -38,14 +38,14 @@ func TestLogEventTool_RequiresEvent(t *testing.T) {
 func TestLogEventTool_Success(t *testing.T) {
 	mc := &mockClient{}
 	ep := &mockEmbedProvider{result: []float64{0.1, 0.2}}
-	out, err := NewLogEventTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewLogEventTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"event":      "decision was made",
 		"event_type": "decision",
 		"context":    "during code review",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "id")
-	assert.Contains(t, out, "timestamp")
+	assert.Contains(t, result.Content[0].Text, "id")
+	assert.Contains(t, result.Content[0].Text, "timestamp")
 	assert.Equal(t, 1, ep.called)
 }
 
@@ -58,12 +58,12 @@ func TestLogEventTool_NoUpdatedField(t *testing.T) {
 	// the code path sets only "created" and not "updated" by inspecting the tool logic.
 	// The test validates the tool produces an id and timestamp (write-once semantics).
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewLogEventTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewLogEventTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"event": "action taken",
 	})
 	require.NoError(t, err)
 	_ = capturedPayload
-	assert.NotEmpty(t, out)
+	assert.NotEmpty(t, result.Content[0].Text)
 }
 
 func TestLogEventTool_EmbedError(t *testing.T) {
@@ -93,12 +93,12 @@ func TestRecallEventsTool_ScrollPath(t *testing.T) {
 			}},
 		},
 	}
-	out, err := NewRecallEventsTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
+	result, err := NewRecallEventsTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
 		"limit": float64(5),
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "e1")
-	assert.Contains(t, out, "action taken")
+	assert.Contains(t, result.Content[0].Text, "e1")
+	assert.Contains(t, result.Content[0].Text, "action taken")
 }
 
 func TestRecallEventsTool_SearchPath(t *testing.T) {
@@ -111,11 +111,11 @@ func TestRecallEventsTool_SearchPath(t *testing.T) {
 		},
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewRecallEventsTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewRecallEventsTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"query": "what went wrong",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "e2")
+	assert.Contains(t, result.Content[0].Text, "e2")
 }
 
 func TestRecallEventsTool_InvalidSince(t *testing.T) {
@@ -154,20 +154,20 @@ func TestSummarisePeriodTool_ProseOutput(t *testing.T) {
 			}},
 		},
 	}
-	out, err := NewSummarisePeriodTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
+	result, err := NewSummarisePeriodTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
 		"since": "7d",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "summary")
-	assert.Contains(t, out, "event_count")
-	assert.Contains(t, out, "period")
+	assert.Contains(t, result.Content[0].Text, "summary")
+	assert.Contains(t, result.Content[0].Text, "event_count")
+	assert.Contains(t, result.Content[0].Text, "period")
 }
 
 func TestSummarisePeriodTool_EmptyEvents(t *testing.T) {
 	mc := &mockClient{scrollRes: []client.ScrollResult{}}
-	out, err := NewSummarisePeriodTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
+	result, err := NewSummarisePeriodTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
 		"since": "1h",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "no events recorded")
+	assert.Contains(t, result.Content[0].Text, "no events recorded")
 }

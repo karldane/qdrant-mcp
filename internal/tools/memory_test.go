@@ -20,16 +20,16 @@ func TestRememberHandle_CreatesNewMemory(t *testing.T) {
 	mc := &mockClient{}
 	ep := &mockEmbedProvider{result: []float64{0.1, 0.2}}
 	tool := NewRememberTool(mc, rwCfg, ep, 0.95)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{
+	result, err := tool.Handle(context.Background(), map[string]interface{}{
 		"content": "Paris is the capital of France",
 		"tags":    []interface{}{"geography"},
 	})
 	require.NoError(t, err)
 
-	var result map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(out), &result))
-	assert.Equal(t, "created", result["action"])
-	assert.NotEmpty(t, result["id"])
+	var data map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].Text), &data))
+	assert.Equal(t, "created", data["action"])
+	assert.NotEmpty(t, data["id"])
 	assert.Equal(t, 1, ep.called)
 }
 
@@ -42,15 +42,15 @@ func TestRememberHandle_DeduplicatesNearMatch(t *testing.T) {
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1, 0.2}}
 	tool := NewRememberTool(mc, rwCfg, ep, 0.95)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{
+	result, err := tool.Handle(context.Background(), map[string]interface{}{
 		"content": "Paris is the capital of France (updated)",
 	})
 	require.NoError(t, err)
 
-	var result map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(out), &result))
-	assert.Equal(t, "updated", result["action"])
-	assert.Equal(t, "existing-uuid", result["id"])
+	var data map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].Text), &data))
+	assert.Equal(t, "updated", data["action"])
+	assert.Equal(t, "existing-uuid", data["id"])
 }
 
 func TestRememberHandle_DoesNotDeduplicateLowScore(t *testing.T) {
@@ -61,14 +61,14 @@ func TestRememberHandle_DoesNotDeduplicateLowScore(t *testing.T) {
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1, 0.2}}
 	tool := NewRememberTool(mc, rwCfg, ep, 0.95)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{
+	result, err := tool.Handle(context.Background(), map[string]interface{}{
 		"content": "something different",
 	})
 	require.NoError(t, err)
 
-	var result map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(out), &result))
-	assert.Equal(t, "created", result["action"])
+	var data map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].Text), &data))
+	assert.Equal(t, "created", data["action"])
 }
 
 func TestRememberHandle_ReadonlyBlocked(t *testing.T) {
@@ -109,12 +109,12 @@ func TestRememberHandle_IDIsUUID(t *testing.T) {
 	mc := &mockClient{}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
 	tool := NewRememberTool(mc, rwCfg, ep, 0.95)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{"content": "uuid test"})
+	result, err := tool.Handle(context.Background(), map[string]interface{}{"content": "uuid test"})
 	require.NoError(t, err)
 
-	var result map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(out), &result))
-	id, ok := result["id"].(string)
+	var data map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].Text), &data))
+	id, ok := data["id"].(string)
 	require.True(t, ok)
 	assert.Len(t, id, 36)
 	assert.Equal(t, 4, strings.Count(id, "-"))
@@ -143,15 +143,15 @@ func TestRecallHandle_ReturnsMemories(t *testing.T) {
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
 	tool := NewRecallTool(mc, rwCfg, ep)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{
+	result, err := tool.Handle(context.Background(), map[string]interface{}{
 		"query": "France",
 		"limit": float64(5),
 	})
 	require.NoError(t, err)
 
-	var result map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(out), &result))
-	assert.Equal(t, float64(1), result["count"])
+	var data map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].Text), &data))
+	assert.Equal(t, float64(1), data["count"])
 }
 
 func TestRecallHandle_FiltersExpired(t *testing.T) {
@@ -166,11 +166,11 @@ func TestRecallHandle_FiltersExpired(t *testing.T) {
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
 	tool := NewRecallTool(mc, rwCfg, ep)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{"query": "test"})
+	result, err := tool.Handle(context.Background(), map[string]interface{}{"query": "test"})
 	require.NoError(t, err)
-	var result map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(out), &result))
-	assert.Equal(t, float64(0), result["count"])
+	var data map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].Text), &data))
+	assert.Equal(t, float64(0), data["count"])
 }
 
 func TestRecallHandle_EmbedError(t *testing.T) {
@@ -202,13 +202,13 @@ func TestRecallTool_Schema(t *testing.T) {
 func TestForgetHandle_ByID(t *testing.T) {
 	mc := &mockClient{}
 	tool := NewForgetTool(mc, rwCfg, nil)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{
+	result, err := tool.Handle(context.Background(), map[string]interface{}{
 		"id": "some-uuid-1234-5678",
 	})
 	require.NoError(t, err)
-	var result map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(out), &result))
-	assert.Equal(t, float64(1), result["deleted"])
+	var data map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].Text), &data))
+	assert.Equal(t, float64(1), data["deleted"])
 }
 
 func TestForgetHandle_ByQueryWithoutConfirm_ReturnsPending(t *testing.T) {
@@ -219,13 +219,13 @@ func TestForgetHandle_ByQueryWithoutConfirm_ReturnsPending(t *testing.T) {
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
 	tool := NewForgetTool(mc, rwCfg, ep)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{
+	result, err := tool.Handle(context.Background(), map[string]interface{}{
 		"query":   "test",
 		"confirm": false,
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "pending_delete")
-	assert.Contains(t, out, "confirm=true")
+	assert.Contains(t, result.Content[0].Text, "pending_delete")
+	assert.Contains(t, result.Content[0].Text, "confirm=true")
 }
 
 func TestForgetHandle_ByQueryWithConfirm_Deletes(t *testing.T) {
@@ -236,14 +236,14 @@ func TestForgetHandle_ByQueryWithConfirm_Deletes(t *testing.T) {
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
 	tool := NewForgetTool(mc, rwCfg, ep)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{
+	result, err := tool.Handle(context.Background(), map[string]interface{}{
 		"query":   "test",
 		"confirm": true,
 	})
 	require.NoError(t, err)
-	var result map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(out), &result))
-	assert.Equal(t, float64(1), result["deleted"])
+	var data map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].Text), &data))
+	assert.Equal(t, float64(1), data["deleted"])
 }
 
 func TestForgetHandle_NoArgsError(t *testing.T) {
@@ -283,12 +283,12 @@ func TestReflectHandle_ReturnsSummary(t *testing.T) {
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
 	tool := NewReflectTool(mc, rwCfg, ep)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{"topic": "France"})
+	result, err := tool.Handle(context.Background(), map[string]interface{}{"topic": "France"})
 	require.NoError(t, err)
-	var result map[string]interface{}
-	require.NoError(t, json.Unmarshal([]byte(out), &result))
-	assert.NotEmpty(t, result["summary"])
-	assert.Equal(t, float64(1), result["count"])
+	var data map[string]interface{}
+	require.NoError(t, json.Unmarshal([]byte(result.Content[0].Text), &data))
+	assert.NotEmpty(t, data["summary"])
+	assert.Equal(t, float64(1), data["count"])
 }
 
 func TestReflectHandle_EmptyTopicError(t *testing.T) {

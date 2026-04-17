@@ -25,16 +25,16 @@ func TestWhatDoIKnowTool_NoEmbed(t *testing.T) {
 		countResult: 5,
 		scrollRes:   []client.ScrollResult{},
 	}
-	out, err := NewWhatDoIKnowTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{})
+	result, err := NewWhatDoIKnowTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{})
 	require.NoError(t, err)
 	// Embed must not have been called.
 	assert.Equal(t, 0, ep.called)
 	// All memory type sections present.
-	assert.Contains(t, out, "semantic_memory")
-	assert.Contains(t, out, "episodic_memory")
-	assert.Contains(t, out, "procedures")
-	assert.Contains(t, out, "active_tasks")
-	assert.Contains(t, out, "cache")
+	assert.Contains(t, result.Content[0].Text, "semantic_memory")
+	assert.Contains(t, result.Content[0].Text, "episodic_memory")
+	assert.Contains(t, result.Content[0].Text, "procedures")
+	assert.Contains(t, result.Content[0].Text, "active_tasks")
+	assert.Contains(t, result.Content[0].Text, "cache")
 }
 
 func TestWhatDoIKnowTool_CountsPopulated(t *testing.T) {
@@ -42,9 +42,9 @@ func TestWhatDoIKnowTool_CountsPopulated(t *testing.T) {
 		countResult: 42,
 		scrollRes:   []client.ScrollResult{},
 	}
-	out, err := NewWhatDoIKnowTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{})
+	result, err := NewWhatDoIKnowTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{})
 	require.NoError(t, err)
-	assert.Contains(t, out, "42")
+	assert.Contains(t, result.Content[0].Text, "42")
 }
 
 func TestWhatDoIKnowTool_ProcedureNames(t *testing.T) {
@@ -56,9 +56,9 @@ func TestWhatDoIKnowTool_ProcedureNames(t *testing.T) {
 			}},
 		},
 	}
-	out, err := NewWhatDoIKnowTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{})
+	result, err := NewWhatDoIKnowTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{})
 	require.NoError(t, err)
-	assert.Contains(t, out, "deploy-k8s")
+	assert.Contains(t, result.Content[0].Text, "deploy-k8s")
 }
 
 func TestWhatDoIKnowTool_ActiveTasksExcludeComplete(t *testing.T) {
@@ -76,10 +76,10 @@ func TestWhatDoIKnowTool_ActiveTasksExcludeComplete(t *testing.T) {
 			}},
 		},
 	}
-	out, err := NewWhatDoIKnowTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{})
+	result, err := NewWhatDoIKnowTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{})
 	require.NoError(t, err)
-	assert.Contains(t, out, "active work")
-	assert.NotContains(t, out, "finished work")
+	assert.Contains(t, result.Content[0].Text, "active work")
+	assert.NotContains(t, result.Content[0].Text, "finished work")
 }
 
 // ---------------------------------------------------------------------------
@@ -98,12 +98,12 @@ func TestMemoryStatsTool_Success(t *testing.T) {
 			"status":        "ready",
 		},
 	}
-	out, err := NewMemoryStatsTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{})
+	result, err := NewMemoryStatsTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{})
 	require.NoError(t, err)
-	assert.Contains(t, out, "total_points")
-	assert.Contains(t, out, "by_type")
-	assert.Contains(t, out, "vector_count")
-	assert.Contains(t, out, "index_status")
+	assert.Contains(t, result.Content[0].Text, "total_points")
+	assert.Contains(t, result.Content[0].Text, "by_type")
+	assert.Contains(t, result.Content[0].Text, "vector_count")
+	assert.Contains(t, result.Content[0].Text, "index_status")
 }
 
 func TestMemoryStatsTool_CollectionInfoError(t *testing.T) {
@@ -120,12 +120,12 @@ func TestMemoryStatsTool_ByTypeKeys(t *testing.T) {
 		countResult:       3,
 		collectionInfoRes: map[string]interface{}{"status": "ready"},
 	}
-	out, err := NewMemoryStatsTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{})
+	result, err := NewMemoryStatsTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{})
 	require.NoError(t, err)
 	// All expected memory types should appear in by_type.
-	assert.Contains(t, out, "semantic")
-	assert.Contains(t, out, "episodic")
-	assert.Contains(t, out, "procedural")
-	assert.Contains(t, out, "task")
-	assert.Contains(t, out, "cache")
+	assert.Contains(t, result.Content[0].Text, "semantic")
+	assert.Contains(t, result.Content[0].Text, "episodic")
+	assert.Contains(t, result.Content[0].Text, "procedural")
+	assert.Contains(t, result.Content[0].Text, "task")
+	assert.Contains(t, result.Content[0].Text, "cache")
 }

@@ -1,0 +1,25 @@
+# Binaries
+qdrant-mcp
+qdrant-mcp-*
+
+# Build artifacts
+*.exe
+*.test
+*.out
+
+# Go coverage
+coverage.out
+coverage.html
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+devdocs
+docker/.env
+vendor

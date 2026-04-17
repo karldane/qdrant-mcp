@@ -37,14 +37,14 @@ func (t *CollectionInfoTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *CollectionInfoTool) Handle(ctx context.Context, _ map[string]interface{}) (string, error) {
+func (t *CollectionInfoTool) Handle(ctx context.Context, _ map[string]interface{}) (framework.ToolResult, error) {
 	info, err := t.client.CollectionInfo(ctx)
 	if err != nil {
-		return "", fmt.Errorf("collection_info: %w", err)
+		return framework.TextResult(""), fmt.Errorf("collection_info: %v", err)
 	}
 
 	b, _ := json.Marshal(info)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *CollectionInfoTool) GetEnforcerProfile() *framework.EnforcerProfile {

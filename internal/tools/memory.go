@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -71,14 +72,14 @@ func (t *RememberTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *RememberTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *RememberTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	content, _ := args["content"].(string)
 	if content == "" {
-		return "", fmt.Errorf("content is required")
+		return framework.TextResult(""), errors.New("content is required")
 	}
 
 	// Embed the content.
@@ -87,7 +88,7 @@ func (t *RememberTool) Handle(ctx context.Context, args map[string]interface{}) 
 	if t.embedder != nil {
 		vector, embedErr = t.embedder.Embed(ctx, content)
 		if embedErr != nil {
-			return "", fmt.Errorf("embed content: %w", embedErr)
+			return framework.TextResult(""), fmt.Errorf("embed content: %w", embedErr)
 		}
 	}
 
@@ -109,11 +110,11 @@ func (t *RememberTool) Handle(ctx context.Context, args map[string]interface{}) 
 				updatePayload["confidence"] = conf
 			}
 			if err := t.client.SetPayload(ctx, id, updatePayload); err != nil {
-				return "", fmt.Errorf("update memory: %w", err)
+				return framework.TextResult(""), fmt.Errorf("update memory: %w", err)
 			}
 			out := map[string]interface{}{"id": id, "action": action, "content": content}
 			b, _ := json.Marshal(out)
-			return string(b), nil
+			return framework.TextResult(string(b)), nil
 		}
 	}
 
@@ -140,12 +141,12 @@ func (t *RememberTool) Handle(ctx context.Context, args map[string]interface{}) 
 	}
 
 	if err := t.client.UpsertPoint(ctx, id, vector, payload); err != nil {
-		return "", fmt.Errorf("store memory: %w", err)
+		return framework.TextResult(""), fmt.Errorf("store memory: %w", err)
 	}
 
 	out := map[string]interface{}{"id": id, "action": action, "content": content}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *RememberTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -210,10 +211,10 @@ func (t *RecallTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *RecallTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *RecallTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	query, _ := args["query"].(string)
 	if query == "" {
-		return "", fmt.Errorf("query is required")
+		return framework.TextResult(""), errors.New("query is required")
 	}
 
 	limit := 5
@@ -235,7 +236,7 @@ func (t *RecallTool) Handle(ctx context.Context, args map[string]interface{}) (s
 		var err error
 		vector, err = t.embedder.Embed(ctx, query)
 		if err != nil {
-			return "", fmt.Errorf("embed query: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed query: %w", err)
 		}
 	}
 
@@ -245,7 +246,7 @@ func (t *RecallTool) Handle(ctx context.Context, args map[string]interface{}) (s
 
 	results, err := t.client.Search(ctx, vector, limit*2, filter) // over-fetch to allow TTL filtering
 	if err != nil {
-		return "", fmt.Errorf("recall: %w", err)
+		return framework.TextResult(""), fmt.Errorf("recall: %w", err)
 	}
 
 	// Tag filter post-processing.
@@ -309,7 +310,7 @@ func (t *RecallTool) Handle(ctx context.Context, args map[string]interface{}) (s
 
 	out := map[string]interface{}{"memories": memories, "count": len(memories)}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *RecallTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -373,9 +374,9 @@ func (t *ForgetTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	id, _ := args["id"].(string)
@@ -388,7 +389,7 @@ func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (s
 	}
 
 	if id == "" && query == "" && len(tags) == 0 {
-		return "", fmt.Errorf("must provide id, query, or tags")
+		return framework.TextResult(""), errors.New("must provide id, query, or tags")
 	}
 
 	var deletedIDs []string
@@ -396,7 +397,7 @@ func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (s
 	// Direct ID delete.
 	if id != "" {
 		if err := t.client.DeletePoints(ctx, []string{id}, nil); err != nil {
-			return "", fmt.Errorf("forget: %w", err)
+			return framework.TextResult(""), fmt.Errorf("forget: %w", err)
 		}
 		deletedIDs = []string{id}
 	}
@@ -405,7 +406,7 @@ func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (s
 	if len(tags) > 0 {
 		filter := map[string]interface{}{"memory_type": "semantic", "tags": tags[0]}
 		if err := t.client.DeletePoints(ctx, nil, filter); err != nil {
-			return "", fmt.Errorf("forget by tag: %w", err)
+			return framework.TextResult(""), fmt.Errorf("forget by tag: %w", err)
 		}
 	}
 
@@ -413,11 +414,11 @@ func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (s
 	if query != "" && t.embedder != nil {
 		vector, err := t.embedder.Embed(ctx, query)
 		if err != nil {
-			return "", fmt.Errorf("embed query: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed query: %w", err)
 		}
 		results, err := t.client.Search(ctx, vector, limit, map[string]interface{}{"memory_type": "semantic"})
 		if err != nil {
-			return "", fmt.Errorf("search for forget: %w", err)
+			return framework.TextResult(""), fmt.Errorf("search for forget: %w", err)
 		}
 		if !confirm {
 			// Safety gate: return matches without deleting.
@@ -433,7 +434,7 @@ func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (s
 				"pending_delete": previews,
 				"message":        "Call forget again with confirm=true to delete these memories",
 			})
-			return string(b), nil
+			return framework.TextResult(string(b)), nil
 		}
 		ids := make([]string, 0, len(results))
 		for _, r := range results {
@@ -441,7 +442,7 @@ func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (s
 		}
 		if len(ids) > 0 {
 			if err := t.client.DeletePoints(ctx, ids, nil); err != nil {
-				return "", fmt.Errorf("forget: %w", err)
+				return framework.TextResult(""), fmt.Errorf("forget: %w", err)
 			}
 			deletedIDs = append(deletedIDs, ids...)
 		}
@@ -449,7 +450,7 @@ func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (s
 
 	out := map[string]interface{}{"deleted": len(deletedIDs), "ids": deletedIDs}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *ForgetTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -504,10 +505,10 @@ func (t *ReflectTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *ReflectTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *ReflectTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	topic, _ := args["topic"].(string)
 	if topic == "" {
-		return "", fmt.Errorf("topic is required")
+		return framework.TextResult(""), errors.New("topic is required")
 	}
 
 	limit := 10
@@ -520,13 +521,13 @@ func (t *ReflectTool) Handle(ctx context.Context, args map[string]interface{}) (
 		var err error
 		vector, err = t.embedder.Embed(ctx, topic)
 		if err != nil {
-			return "", fmt.Errorf("embed topic: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed topic: %w", err)
 		}
 	}
 
 	results, err := t.client.Search(ctx, vector, limit, map[string]interface{}{"memory_type": "semantic"})
 	if err != nil {
-		return "", fmt.Errorf("reflect search: %w", err)
+		return framework.TextResult(""), fmt.Errorf("reflect search: %w", err)
 	}
 
 	// Tag filter.
@@ -569,7 +570,7 @@ func (t *ReflectTool) Handle(ctx context.Context, args map[string]interface{}) (
 		"count":   len(sourceIDs),
 	}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *ReflectTool) GetEnforcerProfile() *framework.EnforcerProfile {

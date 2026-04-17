@@ -37,7 +37,7 @@ func TestSaveProgressTool_CreateRequiresTitle(t *testing.T) {
 func TestSaveProgressTool_CreateSuccess(t *testing.T) {
 	mc := &mockClient{}
 	ep := &mockEmbedProvider{result: []float64{0.1, 0.2}}
-	out, err := NewSaveProgressTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewSaveProgressTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"title":   "Refactor auth module",
 		"summary": "Moved JWT logic to separate package",
 		"next_steps": []interface{}{
@@ -46,9 +46,9 @@ func TestSaveProgressTool_CreateSuccess(t *testing.T) {
 		},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "task_id")
-	assert.Contains(t, out, "created")
-	assert.Contains(t, out, "Refactor auth module")
+	assert.Contains(t, result.Content[0].Text, "task_id")
+	assert.Contains(t, result.Content[0].Text, "created")
+	assert.Contains(t, result.Content[0].Text, "Refactor auth module")
 }
 
 func TestSaveProgressTool_UpdateNotFound(t *testing.T) {
@@ -74,13 +74,13 @@ func TestSaveProgressTool_UpdateSuccess(t *testing.T) {
 		},
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewSaveProgressTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewSaveProgressTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"task_id": "task-1",
 		"status":  "complete",
 		"summary": "All done",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "updated")
+	assert.Contains(t, result.Content[0].Text, "updated")
 }
 
 // ---------------------------------------------------------------------------
@@ -109,11 +109,11 @@ func TestResumeTaskTool_ByID(t *testing.T) {
 			},
 		},
 	}
-	out, err := NewResumeTaskTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
+	result, err := NewResumeTaskTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
 		"task_id": "task-42",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "important task")
+	assert.Contains(t, result.Content[0].Text, "important task")
 }
 
 func TestResumeTaskTool_ByQueryExcludesComplete(t *testing.T) {
@@ -130,12 +130,12 @@ func TestResumeTaskTool_ByQueryExcludesComplete(t *testing.T) {
 		},
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewResumeTaskTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewResumeTaskTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"query": "find my work",
 	})
 	require.NoError(t, err)
-	assert.NotContains(t, out, "completed task")
-	assert.Contains(t, out, "active task")
+	assert.NotContains(t, result.Content[0].Text, "completed task")
+	assert.Contains(t, result.Content[0].Text, "active task")
 }
 
 // ---------------------------------------------------------------------------
@@ -154,11 +154,11 @@ func TestListTasksTool_ExcludesCompleteByDefault(t *testing.T) {
 			{ID: "t3", Payload: map[string]interface{}{"title": "gave up", "status": "abandoned"}},
 		},
 	}
-	out, err := NewListTasksTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{})
+	result, err := NewListTasksTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{})
 	require.NoError(t, err)
-	assert.Contains(t, out, "active")
-	assert.NotContains(t, out, "done")
-	assert.NotContains(t, out, "gave up")
+	assert.Contains(t, result.Content[0].Text, "active")
+	assert.NotContains(t, result.Content[0].Text, "done")
+	assert.NotContains(t, result.Content[0].Text, "gave up")
 }
 
 func TestListTasksTool_FilterByStatus(t *testing.T) {
@@ -167,11 +167,11 @@ func TestListTasksTool_FilterByStatus(t *testing.T) {
 			{ID: "t1", Payload: map[string]interface{}{"title": "blocked one", "status": "blocked"}},
 		},
 	}
-	out, err := NewListTasksTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{
+	result, err := NewListTasksTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{
 		"status": "blocked",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "blocked one")
+	assert.Contains(t, result.Content[0].Text, "blocked one")
 }
 
 func TestListTasksTool_Count(t *testing.T) {
@@ -181,9 +181,9 @@ func TestListTasksTool_Count(t *testing.T) {
 			{ID: "t2", Payload: map[string]interface{}{"title": "task2", "status": "blocked"}},
 		},
 	}
-	out, err := NewListTasksTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{})
+	result, err := NewListTasksTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{})
 	require.NoError(t, err)
-	assert.Contains(t, out, `"count":2`)
+	assert.Contains(t, result.Content[0].Text, `"count":2`)
 }
 
 // ---------------------------------------------------------------------------
@@ -210,13 +210,13 @@ func TestAbandonTaskTool_RequiresTaskID(t *testing.T) {
 
 func TestAbandonTaskTool_Success(t *testing.T) {
 	mc := &mockClient{}
-	out, err := NewAbandonTaskTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{
+	result, err := NewAbandonTaskTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{
 		"task_id": "task-99",
 		"reason":  "decided not to pursue",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "task-99")
-	assert.Contains(t, out, "abandoned")
+	assert.Contains(t, result.Content[0].Text, "task-99")
+	assert.Contains(t, result.Content[0].Text, "abandoned")
 }
 
 func TestAbandonTaskTool_SetPayloadError(t *testing.T) {

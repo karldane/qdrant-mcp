@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -66,14 +67,14 @@ func (t *LogEventTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *LogEventTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *LogEventTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	event, _ := args["event"].(string)
 	if event == "" {
-		return "", fmt.Errorf("event is required")
+		return framework.TextResult(""), errors.New("event is required")
 	}
 	eventType, _ := args["event_type"].(string)
 	eventContext, _ := args["context"].(string)
@@ -89,7 +90,7 @@ func (t *LogEventTool) Handle(ctx context.Context, args map[string]interface{}) 
 		var err error
 		vector, err = t.embedder.Embed(ctx, embedText)
 		if err != nil {
-			return "", fmt.Errorf("embed event: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed event: %w", err)
 		}
 	}
 
@@ -116,12 +117,12 @@ func (t *LogEventTool) Handle(ctx context.Context, args map[string]interface{}) 
 	}
 
 	if err := t.client.UpsertPoint(ctx, id, vector, payload); err != nil {
-		return "", fmt.Errorf("log_event: %w", err)
+		return framework.TextResult(""), fmt.Errorf("log_event: %w", err)
 	}
 
 	out := map[string]interface{}{"id": id, "timestamp": now}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *LogEventTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -192,7 +193,7 @@ func (t *RecallEventsTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *RecallEventsTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *RecallEventsTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	limit := 10
 	if l, ok := args["limit"].(float64); ok && l > 0 {
 		limit = int(l)
@@ -214,14 +215,14 @@ func (t *RecallEventsTool) Handle(ctx context.Context, args map[string]interface
 		var err error
 		sinceTime, err = parseRelativeTime(s)
 		if err != nil {
-			return "", fmt.Errorf("invalid time 'since': %v", err)
+			return framework.TextResult(""), fmt.Errorf("invalid time 'since': %v", err)
 		}
 	}
 	if u, ok := args["until"].(string); ok && u != "" {
 		var err error
 		untilTime, err = parseRelativeTime(u)
 		if err != nil {
-			return "", fmt.Errorf("invalid time 'until': %v", err)
+			return framework.TextResult(""), fmt.Errorf("invalid time 'until': %v", err)
 		}
 	}
 
@@ -250,11 +251,11 @@ func (t *RecallEventsTool) Handle(ctx context.Context, args map[string]interface
 		// Semantic path.
 		vector, err := t.embedder.Embed(ctx, query)
 		if err != nil {
-			return "", fmt.Errorf("embed query: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed query: %w", err)
 		}
 		results, err := t.client.Search(ctx, vector, limit*2, filter)
 		if err != nil {
-			return "", fmt.Errorf("recall_events search: %w", err)
+			return framework.TextResult(""), fmt.Errorf("recall_events search: %w", err)
 		}
 		for _, r := range results {
 			created := payloadString(r.Payload, "created")
@@ -277,7 +278,7 @@ func (t *RecallEventsTool) Handle(ctx context.Context, args map[string]interface
 		// Scroll path (no query).
 		results, _, err := t.client.Scroll(ctx, limit*2, filter, "")
 		if err != nil {
-			return "", fmt.Errorf("recall_events scroll: %w", err)
+			return framework.TextResult(""), fmt.Errorf("recall_events scroll: %w", err)
 		}
 		for _, r := range results {
 			created := payloadString(r.Payload, "created")
@@ -307,7 +308,7 @@ func (t *RecallEventsTool) Handle(ctx context.Context, args map[string]interface
 
 	out := map[string]interface{}{"events": events, "count": len(events)}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *RecallEventsTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -364,21 +365,21 @@ func (t *SummarisePeriodTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *SummarisePeriodTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *SummarisePeriodTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	sinceStr, _ := args["since"].(string)
 	if sinceStr == "" {
-		return "", fmt.Errorf("since is required")
+		return framework.TextResult(""), errors.New("since is required")
 	}
 	sinceTime, err := parseRelativeTime(sinceStr)
 	if err != nil {
-		return "", fmt.Errorf("invalid time 'since': %v", err)
+		return framework.TextResult(""), fmt.Errorf("invalid time 'since': %v", err)
 	}
 
 	var untilTime time.Time
 	if u, ok := args["until"].(string); ok && u != "" {
 		untilTime, err = parseRelativeTime(u)
 		if err != nil {
-			return "", fmt.Errorf("invalid time 'until': %v", err)
+			return framework.TextResult(""), fmt.Errorf("invalid time 'until': %v", err)
 		}
 	}
 
@@ -389,7 +390,7 @@ func (t *SummarisePeriodTool) Handle(ctx context.Context, args map[string]interf
 
 	results, _, err := t.client.Scroll(ctx, 50, filter, "")
 	if err != nil {
-		return "", fmt.Errorf("summarise_period scroll: %w", err)
+		return framework.TextResult(""), fmt.Errorf("summarise_period scroll: %w", err)
 	}
 
 	type eventEntry struct {
@@ -458,7 +459,7 @@ func (t *SummarisePeriodTool) Handle(ctx context.Context, args map[string]interf
 		"period":      periodLabel,
 	}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *SummarisePeriodTool) GetEnforcerProfile() *framework.EnforcerProfile {

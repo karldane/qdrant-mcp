@@ -58,14 +58,14 @@ func TestLearnProcedureTool_RequiredFields(t *testing.T) {
 func TestLearnProcedureTool_CreateNew(t *testing.T) {
 	mc := &mockClient{scrollRes: []client.ScrollResult{}} // no existing
 	ep := &mockEmbedProvider{result: []float64{0.1, 0.2}}
-	out, err := NewLearnProcedureTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewLearnProcedureTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"name":        "build-go",
 		"description": "Build a Go project",
 		"steps":       []interface{}{"go mod tidy", "go build ./..."},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "created")
-	assert.Contains(t, out, "build-go")
+	assert.Contains(t, result.Content[0].Text, "created")
+	assert.Contains(t, result.Content[0].Text, "build-go")
 }
 
 func TestLearnProcedureTool_UpdateExisting(t *testing.T) {
@@ -78,13 +78,13 @@ func TestLearnProcedureTool_UpdateExisting(t *testing.T) {
 		},
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewLearnProcedureTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewLearnProcedureTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"name":        "build-go",
 		"description": "Build a Go project (updated)",
 		"steps":       []interface{}{"go mod tidy", "go build ./...", "go test ./..."},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "updated")
+	assert.Contains(t, result.Content[0].Text, "updated")
 }
 
 // ---------------------------------------------------------------------------
@@ -111,12 +111,12 @@ func TestRecallProcedureTool_ByName(t *testing.T) {
 			}},
 		},
 	}
-	out, err := NewRecallProcedureTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
+	result, err := NewRecallProcedureTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
 		"name": "deploy-k8s",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "deploy-k8s")
-	assert.Contains(t, out, "procedures")
+	assert.Contains(t, result.Content[0].Text, "deploy-k8s")
+	assert.Contains(t, result.Content[0].Text, "procedures")
 }
 
 func TestRecallProcedureTool_ByQuery(t *testing.T) {
@@ -130,11 +130,11 @@ func TestRecallProcedureTool_ByQuery(t *testing.T) {
 		},
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewRecallProcedureTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewRecallProcedureTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"query": "how to debug memory issues",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "debug-oom")
+	assert.Contains(t, result.Content[0].Text, "debug-oom")
 }
 
 // ---------------------------------------------------------------------------
@@ -177,14 +177,14 @@ func TestUpdateProcedureTool_Success(t *testing.T) {
 		},
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewUpdateProcedureTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewUpdateProcedureTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"id":     "proc-1",
 		"steps":  []interface{}{"go mod tidy", "go build ./...", "go test ./..."},
 		"reason": "Added test step",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "revision")
-	assert.Contains(t, out, "proc-1")
+	assert.Contains(t, result.Content[0].Text, "revision")
+	assert.Contains(t, result.Content[0].Text, "proc-1")
 }
 
 func TestUpdateProcedureTool_RequiresID(t *testing.T) {

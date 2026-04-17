@@ -229,39 +229,39 @@ func TestReadonlyEnforcement(t *testing.T) {
 
 	mutatingTools := []struct {
 		name   string
-		handle func(args map[string]interface{}) (string, error)
+		handle func(args map[string]interface{}) (framework.ToolResult, error)
 	}{
-		{"upsert_point", func(args map[string]interface{}) (string, error) {
+		{"upsert_point", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewUpsertPointTool(mc, roCfg).Handle(ctx, args)
 		}},
-		{"delete_points", func(args map[string]interface{}) (string, error) {
+		{"delete_points", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewDeletePointsTool(mc, roCfg).Handle(ctx, args)
 		}},
-		{"remember", func(args map[string]interface{}) (string, error) {
+		{"remember", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewRememberTool(mc, roCfg, ep, 0.95).Handle(ctx, args)
 		}},
-		{"forget", func(args map[string]interface{}) (string, error) {
+		{"forget", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewForgetTool(mc, roCfg, ep).Handle(ctx, args)
 		}},
-		{"log_event", func(args map[string]interface{}) (string, error) {
+		{"log_event", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewLogEventTool(mc, roCfg, ep).Handle(ctx, args)
 		}},
-		{"learn_procedure", func(args map[string]interface{}) (string, error) {
+		{"learn_procedure", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewLearnProcedureTool(mc, roCfg, ep).Handle(ctx, args)
 		}},
-		{"update_procedure", func(args map[string]interface{}) (string, error) {
+		{"update_procedure", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewUpdateProcedureTool(mc, roCfg, ep).Handle(ctx, args)
 		}},
-		{"save_progress", func(args map[string]interface{}) (string, error) {
+		{"save_progress", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewSaveProgressTool(mc, roCfg, ep).Handle(ctx, args)
 		}},
-		{"abandon_task", func(args map[string]interface{}) (string, error) {
+		{"abandon_task", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewAbandonTaskTool(mc, roCfg).Handle(ctx, args)
 		}},
-		{"store_result", func(args map[string]interface{}) (string, error) {
+		{"store_result", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewStoreResultTool(mc, roCfg, ep).Handle(ctx, args)
 		}},
-		{"invalidate_result", func(args map[string]interface{}) (string, error) {
+		{"invalidate_result", func(args map[string]interface{}) (framework.ToolResult, error) {
 			return NewInvalidateResultTool(mc, roCfg).Handle(ctx, args)
 		}},
 	}
@@ -302,13 +302,13 @@ func TestDeletePointsRequiresIdsOrFilter(t *testing.T) {
 func TestUpsertPointHandle_Success(t *testing.T) {
 	mc := &mockClient{}
 	tool := NewUpsertPointTool(mc, rwCfg)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{
+	result, err := tool.Handle(context.Background(), map[string]interface{}{
 		"id":      "abc-123",
 		"vector":  []interface{}{0.1, 0.2, 0.3},
 		"payload": map[string]interface{}{"text": "hello"},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "abc-123")
+	assert.Contains(t, result.Content[0].Text, "abc-123")
 }
 
 func TestUpsertPointHandle_ClientError(t *testing.T) {
@@ -325,12 +325,12 @@ func TestSearchPointsHandle_Success(t *testing.T) {
 		},
 	}
 	tool := NewSearchPointsTool(mc, rwCfg)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{
+	result, err := tool.Handle(context.Background(), map[string]interface{}{
 		"query_vector": []interface{}{0.1, 0.2},
 		"limit":        float64(3),
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "p1")
+	assert.Contains(t, result.Content[0].Text, "p1")
 }
 
 func TestCollectionInfoHandle_Success(t *testing.T) {
@@ -341,9 +341,9 @@ func TestCollectionInfoHandle_Success(t *testing.T) {
 		},
 	}
 	tool := NewCollectionInfoTool(mc, rwCfg)
-	out, err := tool.Handle(context.Background(), map[string]interface{}{})
+	result, err := tool.Handle(context.Background(), map[string]interface{}{})
 	require.NoError(t, err)
-	assert.Contains(t, out, "test_collection")
+	assert.Contains(t, result.Content[0].Text, "test_collection")
 }
 
 func TestCollectionInfoHandle_ClientError(t *testing.T) {

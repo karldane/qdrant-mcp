@@ -36,15 +36,15 @@ func TestStoreResultTool_RequiresResult(t *testing.T) {
 func TestStoreResultTool_CreateNew(t *testing.T) {
 	mc := &mockClient{scrollRes: []client.ScrollResult{}} // no existing
 	ep := &mockEmbedProvider{result: []float64{0.1, 0.2}}
-	out, err := NewStoreResultTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewStoreResultTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"input":     "what is 2+2?",
 		"result":    "4",
 		"ttl_hours": float64(12),
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "key")
-	assert.Contains(t, out, "created")
-	assert.Contains(t, out, "expires")
+	assert.Contains(t, result.Content[0].Text, "key")
+	assert.Contains(t, result.Content[0].Text, "created")
+	assert.Contains(t, result.Content[0].Text, "expires")
 	// Embed should have been called once for the input.
 	assert.Equal(t, 1, ep.called)
 }
@@ -58,12 +58,12 @@ func TestStoreResultTool_UpdateExisting(t *testing.T) {
 		},
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewStoreResultTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewStoreResultTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"key":    "abc123",
 		"result": "updated value",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "updated")
+	assert.Contains(t, result.Content[0].Text, "updated")
 	// Embed should NOT be called on update path (SetPayload only).
 	assert.Equal(t, 0, ep.called)
 }
@@ -71,14 +71,14 @@ func TestStoreResultTool_UpdateExisting(t *testing.T) {
 func TestStoreResultTool_KeyDerivedFromInput(t *testing.T) {
 	mc := &mockClient{scrollRes: []client.ScrollResult{}}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewStoreResultTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewStoreResultTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"input":  "derive key from this",
 		"result": "the answer",
 	})
 	require.NoError(t, err)
 	// Key should be present and non-empty.
-	assert.Contains(t, out, "key")
-	assert.NotContains(t, out, `"key":""`)
+	assert.Contains(t, result.Content[0].Text, "key")
+	assert.NotContains(t, result.Content[0].Text, `"key":""`)
 }
 
 // ---------------------------------------------------------------------------
@@ -101,21 +101,21 @@ func TestLookupResultTool_ExactHit(t *testing.T) {
 			}},
 		},
 	}
-	out, err := NewLookupResultTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
+	result, err := NewLookupResultTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
 		"key": "abc123",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, `"hit":true`)
-	assert.Contains(t, out, "the answer")
+	assert.Contains(t, result.Content[0].Text, `"hit":true`)
+	assert.Contains(t, result.Content[0].Text, "the answer")
 }
 
 func TestLookupResultTool_Miss_NoResults(t *testing.T) {
 	mc := &mockClient{scrollRes: []client.ScrollResult{}}
-	out, err := NewLookupResultTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
+	result, err := NewLookupResultTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
 		"key": "nonexistent",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, `"hit":false`)
+	assert.Contains(t, result.Content[0].Text, `"hit":false`)
 }
 
 func TestLookupResultTool_Miss_Expired(t *testing.T) {
@@ -128,11 +128,11 @@ func TestLookupResultTool_Miss_Expired(t *testing.T) {
 			}},
 		},
 	}
-	out, err := NewLookupResultTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
+	result, err := NewLookupResultTool(mc, rwCfg, nil).Handle(context.Background(), map[string]interface{}{
 		"key": "abc",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, `"hit":false`)
+	assert.Contains(t, result.Content[0].Text, `"hit":false`)
 }
 
 func TestLookupResultTool_SemanticHit(t *testing.T) {
@@ -148,13 +148,13 @@ func TestLookupResultTool_SemanticHit(t *testing.T) {
 		},
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewLookupResultTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewLookupResultTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"query":     "something similar",
 		"min_score": float64(0.85),
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, `"hit":true`)
-	assert.Contains(t, out, "semantic result")
+	assert.Contains(t, result.Content[0].Text, `"hit":true`)
+	assert.Contains(t, result.Content[0].Text, "semantic result")
 }
 
 func TestLookupResultTool_SemanticBelowThreshold(t *testing.T) {
@@ -168,12 +168,12 @@ func TestLookupResultTool_SemanticBelowThreshold(t *testing.T) {
 		},
 	}
 	ep := &mockEmbedProvider{result: []float64{0.1}}
-	out, err := NewLookupResultTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
+	result, err := NewLookupResultTool(mc, rwCfg, ep).Handle(context.Background(), map[string]interface{}{
 		"query":     "something",
 		"min_score": float64(0.85),
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, `"hit":false`)
+	assert.Contains(t, result.Content[0].Text, `"hit":false`)
 }
 
 // ---------------------------------------------------------------------------
@@ -199,18 +199,18 @@ func TestInvalidateResultTool_RequiresKeyOrTags(t *testing.T) {
 
 func TestInvalidateResultTool_ByKey(t *testing.T) {
 	mc := &mockClient{}
-	out, err := NewInvalidateResultTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{
+	result, err := NewInvalidateResultTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{
 		"key": "cache-key-1",
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "invalidated")
+	assert.Contains(t, result.Content[0].Text, "invalidated")
 }
 
 func TestInvalidateResultTool_ByTags(t *testing.T) {
 	mc := &mockClient{}
-	out, err := NewInvalidateResultTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{
+	result, err := NewInvalidateResultTool(mc, rwCfg).Handle(context.Background(), map[string]interface{}{
 		"tags": []interface{}{"stale", "old"},
 	})
 	require.NoError(t, err)
-	assert.Contains(t, out, "invalidated")
+	assert.Contains(t, result.Content[0].Text, "invalidated")
 }

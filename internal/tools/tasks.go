@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -70,9 +71,9 @@ func (t *SaveProgressTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *SaveProgressTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *SaveProgressTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	taskID, _ := args["task_id"].(string)
@@ -89,7 +90,7 @@ func (t *SaveProgressTool) Handle(ctx context.Context, args map[string]interface
 		// Update path: verify task exists.
 		existing, err := t.client.GetPoint(ctx, taskID)
 		if err != nil || existing == nil {
-			return "", fmt.Errorf("not found: no task with id %s", taskID)
+			return framework.TextResult(""), fmt.Errorf("not found: no task with id %v", taskID)
 		}
 		action = "updated"
 		// Preserve original created timestamp.
@@ -104,7 +105,7 @@ func (t *SaveProgressTool) Handle(ctx context.Context, args map[string]interface
 	} else {
 		taskID = uuid.New().String()
 		if title == "" {
-			return "", fmt.Errorf("title is required when creating a new task")
+			return framework.TextResult(""), errors.New("title is required when creating a new task")
 		}
 	}
 
@@ -120,7 +121,7 @@ func (t *SaveProgressTool) Handle(ctx context.Context, args map[string]interface
 		var err error
 		vector, err = t.embedder.Embed(ctx, embedText)
 		if err != nil {
-			return "", fmt.Errorf("embed task: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed task: %v", err)
 		}
 	}
 
@@ -146,12 +147,12 @@ func (t *SaveProgressTool) Handle(ctx context.Context, args map[string]interface
 	}
 
 	if err := t.client.UpsertPoint(ctx, taskID, vector, payload); err != nil {
-		return "", fmt.Errorf("save_progress: %w", err)
+		return framework.TextResult(""), fmt.Errorf("save_progress: %v", err)
 	}
 
 	out := map[string]interface{}{"task_id": taskID, "action": action, "title": title}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *SaveProgressTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -207,7 +208,7 @@ func (t *ResumeTaskTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *ResumeTaskTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *ResumeTaskTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	taskID, _ := args["task_id"].(string)
 	query, _ := args["query"].(string)
 	status, _ := args["status"].(string)
@@ -217,7 +218,7 @@ func (t *ResumeTaskTool) Handle(ctx context.Context, args map[string]interface{}
 	}
 
 	if taskID == "" && query == "" {
-		return "", fmt.Errorf("resume_task: supply either task_id or query")
+		return framework.TextResult(""), errors.New("resume_task: supply either task_id or query")
 	}
 
 	type taskOut struct {
@@ -237,7 +238,7 @@ func (t *ResumeTaskTool) Handle(ctx context.Context, args map[string]interface{}
 		// Exact ID lookup.
 		result, err := t.client.GetPoint(ctx, taskID)
 		if err != nil || result == nil {
-			return "", fmt.Errorf("not found: no task with id %s", taskID)
+			return framework.TextResult(""), fmt.Errorf("not found: no task with id %v", taskID)
 		}
 		tasks = append(tasks, taskOut{
 			TaskID:    taskID,
@@ -256,7 +257,7 @@ func (t *ResumeTaskTool) Handle(ctx context.Context, args map[string]interface{}
 			var err error
 			vector, err = t.embedder.Embed(ctx, query)
 			if err != nil {
-				return "", fmt.Errorf("embed query: %w", err)
+				return framework.TextResult(""), fmt.Errorf("embed query: %v", err)
 			}
 		}
 		filter := map[string]interface{}{"memory_type": "task"}
@@ -265,7 +266,7 @@ func (t *ResumeTaskTool) Handle(ctx context.Context, args map[string]interface{}
 		}
 		results, err := t.client.Search(ctx, vector, limit, filter)
 		if err != nil {
-			return "", fmt.Errorf("resume_task search: %w", err)
+			return framework.TextResult(""), fmt.Errorf("resume_task search: %v", err)
 		}
 		for _, r := range results {
 			taskStatus := payloadString(r.Payload, "status")
@@ -288,7 +289,7 @@ func (t *ResumeTaskTool) Handle(ctx context.Context, args map[string]interface{}
 
 	out := map[string]interface{}{"tasks": tasks}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *ResumeTaskTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -339,7 +340,7 @@ func (t *ListTasksTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *ListTasksTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *ListTasksTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	limit := 20
 	if l, ok := args["limit"].(float64); ok && l > 0 {
 		limit = int(l)
@@ -356,7 +357,7 @@ func (t *ListTasksTool) Handle(ctx context.Context, args map[string]interface{})
 
 	results, _, err := t.client.Scroll(ctx, limit*3, filter, "")
 	if err != nil {
-		return "", fmt.Errorf("list_tasks: %w", err)
+		return framework.TextResult(""), fmt.Errorf("list_tasks: %v", err)
 	}
 
 	type taskSummary struct {
@@ -388,7 +389,7 @@ func (t *ListTasksTool) Handle(ctx context.Context, args map[string]interface{})
 
 	out := map[string]interface{}{"tasks": tasks, "count": len(tasks)}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *ListTasksTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -436,14 +437,14 @@ func (t *AbandonTaskTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *AbandonTaskTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *AbandonTaskTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	taskID, _ := args["task_id"].(string)
 	if taskID == "" {
-		return "", fmt.Errorf("task_id is required")
+		return framework.TextResult(""), errors.New("task_id is required")
 	}
 	reason, _ := args["reason"].(string)
 
@@ -456,12 +457,12 @@ func (t *AbandonTaskTool) Handle(ctx context.Context, args map[string]interface{
 	}
 
 	if err := t.client.SetPayload(ctx, taskID, update); err != nil {
-		return "", fmt.Errorf("abandon_task: %w", err)
+		return framework.TextResult(""), fmt.Errorf("abandon_task: %v", err)
 	}
 
 	out := map[string]interface{}{"task_id": taskID, "status": "abandoned"}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *AbandonTaskTool) GetEnforcerProfile() *framework.EnforcerProfile {

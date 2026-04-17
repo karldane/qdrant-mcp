@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -70,14 +71,14 @@ func (t *StoreResultTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *StoreResultTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *StoreResultTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	result, _ := args["result"].(string)
 	if result == "" {
-		return "", fmt.Errorf("result is required")
+		return framework.TextResult(""), errors.New("result is required")
 	}
 
 	input, _ := args["input"].(string)
@@ -110,7 +111,7 @@ func (t *StoreResultTool) Handle(ctx context.Context, args map[string]interface{
 		"cache_key":   key,
 	}, "")
 	if err != nil {
-		return "", fmt.Errorf("store_result: check existing: %w", err)
+		return framework.TextResult(""), fmt.Errorf("store_result: check existing: %w", err)
 	}
 
 	action := "created"
@@ -123,12 +124,12 @@ func (t *StoreResultTool) Handle(ctx context.Context, args map[string]interface{
 			"updated":     timestampf(),
 		}
 		if err := t.client.SetPayload(ctx, existing[0].ID, update); err != nil {
-			return "", fmt.Errorf("store_result: update: %w", err)
+			return framework.TextResult(""), fmt.Errorf("store_result: update: %w", err)
 		}
 		action = "updated"
 		out := map[string]interface{}{"key": key, "action": action, "expires": expires}
 		b, _ := json.Marshal(out)
-		return string(b), nil
+		return framework.TextResult(string(b)), nil
 	}
 
 	// Embed the input (not the result) so semantic lookup works by input description.
@@ -140,7 +141,7 @@ func (t *StoreResultTool) Handle(ctx context.Context, args map[string]interface{
 	if t.embedder != nil {
 		vector, err = t.embedder.Embed(ctx, embedText)
 		if err != nil {
-			return "", fmt.Errorf("embed input: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed input: %w", err)
 		}
 	}
 
@@ -161,12 +162,12 @@ func (t *StoreResultTool) Handle(ctx context.Context, args map[string]interface{
 	}
 
 	if err := t.client.UpsertPoint(ctx, id, vector, payload); err != nil {
-		return "", fmt.Errorf("store_result: upsert: %w", err)
+		return framework.TextResult(""), fmt.Errorf("store_result: upsert: %w", err)
 	}
 
 	out := map[string]interface{}{"key": key, "action": action, "expires": expires}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *StoreResultTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -223,7 +224,7 @@ func (t *LookupResultTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *LookupResultTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *LookupResultTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	key, _ := args["key"].(string)
 	query, _ := args["query"].(string)
 	minScore := 0.85
@@ -240,15 +241,15 @@ func (t *LookupResultTool) Handle(ctx context.Context, args map[string]interface
 			"cache_key":   key,
 		}, "")
 		if err != nil {
-			return "", fmt.Errorf("lookup_result: %w", err)
+			return framework.TextResult(""), fmt.Errorf("lookup_result: %w", err)
 		}
 		if len(results) == 0 {
-			return miss, nil
+			return framework.TextResult(miss), nil
 		}
 		r := results[0]
 		// TTL check.
 		if isExpired(payloadString(r.Payload, "ttl")) {
-			return miss, nil
+			return framework.TextResult(miss), nil
 		}
 		out := map[string]interface{}{
 			"hit":         true,
@@ -260,14 +261,14 @@ func (t *LookupResultTool) Handle(ctx context.Context, args map[string]interface
 			"age":         humanAge(payloadString(r.Payload, "created")),
 		}
 		b, _ := json.Marshal(out)
-		return string(b), nil
+		return framework.TextResult(string(b)), nil
 	}
 
 	if query != "" && t.embedder != nil {
 		// Semantic lookup.
 		vector, err := t.embedder.Embed(ctx, query)
 		if err != nil {
-			return "", fmt.Errorf("embed query: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed query: %w", err)
 		}
 		filter := map[string]interface{}{"memory_type": "cache"}
 		if tags, ok := args["tags"].([]interface{}); ok && len(tags) > 0 {
@@ -275,14 +276,14 @@ func (t *LookupResultTool) Handle(ctx context.Context, args map[string]interface
 		}
 		results, err := t.client.Search(ctx, vector, 1, filter)
 		if err != nil {
-			return "", fmt.Errorf("lookup_result search: %w", err)
+			return framework.TextResult(""), fmt.Errorf("lookup_result search: %w", err)
 		}
 		if len(results) == 0 || float64(results[0].Score) < minScore {
-			return miss, nil
+			return framework.TextResult(miss), nil
 		}
 		r := results[0]
 		if isExpired(payloadString(r.Payload, "ttl")) {
-			return miss, nil
+			return framework.TextResult(miss), nil
 		}
 		out := map[string]interface{}{
 			"hit":         true,
@@ -294,10 +295,10 @@ func (t *LookupResultTool) Handle(ctx context.Context, args map[string]interface
 			"age":         humanAge(payloadString(r.Payload, "created")),
 		}
 		b, _ := json.Marshal(out)
-		return string(b), nil
+		return framework.TextResult(string(b)), nil
 	}
 
-	return miss, nil
+	return framework.TextResult(miss), nil
 }
 
 func (t *LookupResultTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -349,9 +350,9 @@ func (t *InvalidateResultTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *InvalidateResultTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *InvalidateResultTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	key, _ := args["key"].(string)
@@ -359,7 +360,7 @@ func (t *InvalidateResultTool) Handle(ctx context.Context, args map[string]inter
 	query, _ := args["query"].(string)
 
 	if key == "" && len(tags) == 0 && query == "" {
-		return "", fmt.Errorf("invalidate_result: supply key, tags, or query")
+		return framework.TextResult(""), errors.New("invalidate_result: supply key, tags, or query")
 	}
 
 	invalidated := 0
@@ -367,7 +368,7 @@ func (t *InvalidateResultTool) Handle(ctx context.Context, args map[string]inter
 	if key != "" {
 		filter := map[string]interface{}{"memory_type": "cache", "cache_key": key}
 		if err := t.client.DeletePoints(ctx, nil, filter); err != nil {
-			return "", fmt.Errorf("invalidate_result by key: %w", err)
+			return framework.TextResult(""), fmt.Errorf("invalidate_result by key: %w", err)
 		}
 		invalidated++
 	}
@@ -375,7 +376,7 @@ func (t *InvalidateResultTool) Handle(ctx context.Context, args map[string]inter
 	if len(tags) > 0 {
 		filter := map[string]interface{}{"memory_type": "cache", "tags": tags[0]}
 		if err := t.client.DeletePoints(ctx, nil, filter); err != nil {
-			return "", fmt.Errorf("invalidate_result by tags: %w", err)
+			return framework.TextResult(""), fmt.Errorf("invalidate_result by tags: %w", err)
 		}
 		invalidated++
 	}
@@ -386,7 +387,7 @@ func (t *InvalidateResultTool) Handle(ctx context.Context, args map[string]inter
 
 	out := map[string]interface{}{"invalidated": invalidated}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *InvalidateResultTool) GetEnforcerProfile() *framework.EnforcerProfile {

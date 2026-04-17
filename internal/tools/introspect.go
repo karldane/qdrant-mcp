@@ -44,7 +44,7 @@ func (t *WhatDoIKnowTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *WhatDoIKnowTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *WhatDoIKnowTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	memTypes := []string{"semantic", "episodic", "procedural", "task", "cache"}
 
 	counts := make(map[string]int64)
@@ -162,7 +162,7 @@ func (t *WhatDoIKnowTool) Handle(ctx context.Context, args map[string]interface{
 	}
 
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *WhatDoIKnowTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -200,7 +200,7 @@ func (t *MemoryStatsTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *MemoryStatsTool) Handle(ctx context.Context, _ map[string]interface{}) (string, error) {
+func (t *MemoryStatsTool) Handle(ctx context.Context, _ map[string]interface{}) (framework.ToolResult, error) {
 	memTypes := []string{"semantic", "episodic", "procedural", "task", "cache"}
 
 	byType := make(map[string]int64)
@@ -219,7 +219,7 @@ func (t *MemoryStatsTool) Handle(ctx context.Context, _ map[string]interface{}) 
 	// Get collection info for vector count and status.
 	info, err := t.client.CollectionInfo(ctx)
 	if err != nil {
-		return "", fmt.Errorf("memory_stats: collection_info: %w", err)
+		return framework.TextResult(""), fmt.Errorf("memory_stats: collection_info: %w", err)
 	}
 
 	vectorCount := int64(0)
@@ -241,7 +241,7 @@ func (t *MemoryStatsTool) Handle(ctx context.Context, _ map[string]interface{}) 
 		"index_status": indexStatus,
 	}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *MemoryStatsTool) GetEnforcerProfile() *framework.EnforcerProfile {

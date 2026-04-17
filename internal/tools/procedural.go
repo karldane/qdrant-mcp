@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -68,23 +69,23 @@ func (t *LearnProcedureTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *LearnProcedureTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *LearnProcedureTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	name, _ := args["name"].(string)
 	description, _ := args["description"].(string)
 	if name == "" {
-		return "", fmt.Errorf("name is required")
+		return framework.TextResult(""), errors.New("name is required")
 	}
 	if description == "" {
-		return "", fmt.Errorf("description is required")
+		return framework.TextResult(""), errors.New("description is required")
 	}
 
 	rawSteps, _ := args["steps"].([]interface{})
 	if len(rawSteps) == 0 {
-		return "", fmt.Errorf("steps is required")
+		return framework.TextResult(""), errors.New("steps is required")
 	}
 	steps := ifacesToStrings(rawSteps)
 
@@ -94,7 +95,7 @@ func (t *LearnProcedureTool) Handle(ctx context.Context, args map[string]interfa
 		"name":        name,
 	}, "")
 	if err != nil {
-		return "", fmt.Errorf("learn_procedure: scroll check: %w", err)
+		return framework.TextResult(""), fmt.Errorf("learn_procedure: scroll check: %v", err)
 	}
 
 	id := uuid.New().String()
@@ -112,7 +113,7 @@ func (t *LearnProcedureTool) Handle(ctx context.Context, args map[string]interfa
 	if t.embedder != nil {
 		vector, err = t.embedder.Embed(ctx, embedText)
 		if err != nil {
-			return "", fmt.Errorf("embed procedure: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed procedure: %v", err)
 		}
 	}
 
@@ -137,12 +138,12 @@ func (t *LearnProcedureTool) Handle(ctx context.Context, args map[string]interfa
 	}
 
 	if err := t.client.UpsertPoint(ctx, id, vector, payload); err != nil {
-		return "", fmt.Errorf("learn_procedure: upsert: %w", err)
+		return framework.TextResult(""), fmt.Errorf("learn_procedure: upsert: %v", err)
 	}
 
 	out := map[string]interface{}{"id": id, "name": name, "action": action}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *LearnProcedureTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -198,7 +199,7 @@ func (t *RecallProcedureTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *RecallProcedureTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *RecallProcedureTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	name, _ := args["name"].(string)
 	query, _ := args["query"].(string)
 	limit := 3
@@ -207,7 +208,7 @@ func (t *RecallProcedureTool) Handle(ctx context.Context, args map[string]interf
 	}
 
 	if name == "" && query == "" {
-		return "", fmt.Errorf("recall_procedure: supply either name or query")
+		return framework.TextResult(""), errors.New("recall_procedure: supply either name or query")
 	}
 
 	type procOut struct {
@@ -228,7 +229,7 @@ func (t *RecallProcedureTool) Handle(ctx context.Context, args map[string]interf
 			"name":        name,
 		}, "")
 		if err != nil {
-			return "", fmt.Errorf("recall_procedure: %w", err)
+			return framework.TextResult(""), fmt.Errorf("recall_procedure: %v", err)
 		}
 		for _, r := range results {
 			procedures = append(procedures, procOut{
@@ -243,7 +244,7 @@ func (t *RecallProcedureTool) Handle(ctx context.Context, args map[string]interf
 		// Semantic search.
 		vector, err := t.embedder.Embed(ctx, query)
 		if err != nil {
-			return "", fmt.Errorf("embed query: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed query: %v", err)
 		}
 		filter := map[string]interface{}{"memory_type": "procedural"}
 		if tags, ok := args["tags"].([]interface{}); ok && len(tags) > 0 {
@@ -251,7 +252,7 @@ func (t *RecallProcedureTool) Handle(ctx context.Context, args map[string]interf
 		}
 		results, err := t.client.Search(ctx, vector, limit, filter)
 		if err != nil {
-			return "", fmt.Errorf("recall_procedure search: %w", err)
+			return framework.TextResult(""), fmt.Errorf("recall_procedure search: %v", err)
 		}
 		for _, r := range results {
 			procedures = append(procedures, procOut{
@@ -267,7 +268,7 @@ func (t *RecallProcedureTool) Handle(ctx context.Context, args map[string]interf
 
 	out := map[string]interface{}{"procedures": procedures}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *RecallProcedureTool) GetEnforcerProfile() *framework.EnforcerProfile {
@@ -325,20 +326,20 @@ func (t *UpdateProcedureTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *UpdateProcedureTool) Handle(ctx context.Context, args map[string]interface{}) (string, error) {
+func (t *UpdateProcedureTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
-		return "", err
+		return framework.TextResult(""), err
 	}
 
 	id, _ := args["id"].(string)
 	if id == "" {
-		return "", fmt.Errorf("id is required")
+		return framework.TextResult(""), errors.New("id is required")
 	}
 
 	// Fetch existing.
 	existing, err := t.client.GetPoint(ctx, id)
 	if err != nil || existing == nil {
-		return "", fmt.Errorf("not found: no procedure with id %s", id)
+		return framework.TextResult(""), fmt.Errorf("not found: no procedure with id %v", id)
 	}
 
 	currentRevision := payloadInt(existing.Payload, "revision", 1)
@@ -383,7 +384,7 @@ func (t *UpdateProcedureTool) Handle(ctx context.Context, args map[string]interf
 	if t.embedder != nil {
 		vector, err = t.embedder.Embed(ctx, embedText)
 		if err != nil {
-			return "", fmt.Errorf("embed procedure: %w", err)
+			return framework.TextResult(""), fmt.Errorf("embed procedure: %v", err)
 		}
 	}
 
@@ -410,12 +411,12 @@ func (t *UpdateProcedureTool) Handle(ctx context.Context, args map[string]interf
 	}
 
 	if err := t.client.UpsertPoint(ctx, id, vector, payload); err != nil {
-		return "", fmt.Errorf("update_procedure: %w", err)
+		return framework.TextResult(""), fmt.Errorf("update_procedure: %v", err)
 	}
 
 	out := map[string]interface{}{"id": id, "revision": currentRevision + 1}
 	b, _ := json.Marshal(out)
-	return string(b), nil
+	return framework.TextResult(string(b)), nil
 }
 
 func (t *UpdateProcedureTool) GetEnforcerProfile() *framework.EnforcerProfile {
