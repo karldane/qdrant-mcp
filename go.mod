@@ -4,7 +4,7 @@ go 1.25.8
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/karldane/mcp-framework v0.2.8
+	github.com/karldane/mcp-framework v0.2.9
 	github.com/mark3labs/mcp-go v0.46.0
 	github.com/qdrant/go-client v1.14.0
 	github.com/stretchr/testify v1.11.1

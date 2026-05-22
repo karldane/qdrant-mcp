@@ -22,8 +22,8 @@ github.com/jacobsa/reqtrace v0.0.0-20150505043853-245c9e0234cb h1:uSWBjJdMf47kQl
 github.com/jacobsa/reqtrace v0.0.0-20150505043853-245c9e0234cb/go.mod h1:ivcmUvxXWjb27NsPEaiYK7AidlZXS7oQ5PowUS9z3I4=
 github.com/karldane/go-presidio v0.0.2 h1:IQr6i1HioBofQg+Qyr0ApZUetZfpE3GMadw40uITk54=
 github.com/karldane/go-presidio v0.0.2/go.mod h1:pngwIz9fj5z2TToII5Gj9jsFMIyL4gFa48usoje07oA=
-github.com/karldane/mcp-framework v0.2.8 h1:omyurR/3OnCe3akVH3OG1lqeRFczqB62KsKoyfDpsFo=
-github.com/karldane/mcp-framework v0.2.8/go.mod h1:G+s3yC01VfSCpmUkHE0pkXtFlz6Zrv7BvLVWIw3lKhU=
+github.com/karldane/mcp-framework v0.2.9 h1:PkQDoWQ0lj3/pH1tgi5qZ+CHWKnP+imVxqvAUMJF5WQ=
+github.com/karldane/mcp-framework v0.2.9/go.mod h1:G+s3yC01VfSCpmUkHE0pkXtFlz6Zrv7BvLVWIw3lKhU=
 github.com/kr/pretty v0.3.1 h1:flRD4NNwYAUpkphVc1HcthR4KEIFJ65n8Mw5qdRn3LE=
 github.com/kr/pretty v0.3.1/go.mod h1:hoEshYVHaxMs3cyo3Yncou5ZscifuDolrwPKZanG3xk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
