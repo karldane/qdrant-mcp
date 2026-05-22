@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +18,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type SaveProgressTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -71,7 +71,7 @@ func (t *SaveProgressTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *SaveProgressTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *SaveProgressTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -164,11 +164,16 @@ func (t *SaveProgressTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *SaveProgressTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // ResumeTaskTool — working memory read
 // ---------------------------------------------------------------------------
 
 type ResumeTaskTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -208,7 +213,7 @@ func (t *ResumeTaskTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *ResumeTaskTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *ResumeTaskTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	taskID, _ := args["task_id"].(string)
 	query, _ := args["query"].(string)
 	status, _ := args["status"].(string)
@@ -301,11 +306,16 @@ func (t *ResumeTaskTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *ResumeTaskTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // ListTasksTool — working memory list
 // ---------------------------------------------------------------------------
 
 type ListTasksTool struct {
+	framework.BaseTool
 	client QdrantClient
 	cfg    readonly.ReadOnlyChecker
 }
@@ -340,7 +350,7 @@ func (t *ListTasksTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *ListTasksTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *ListTasksTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	limit := 20
 	if l, ok := args["limit"].(float64); ok && l > 0 {
 		limit = int(l)
@@ -401,11 +411,16 @@ func (t *ListTasksTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *ListTasksTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // AbandonTaskTool — working memory status update
 // ---------------------------------------------------------------------------
 
 type AbandonTaskTool struct {
+	framework.BaseTool
 	client QdrantClient
 	cfg    readonly.ReadOnlyChecker
 }
@@ -437,7 +452,7 @@ func (t *AbandonTaskTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *AbandonTaskTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *AbandonTaskTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -472,4 +487,8 @@ func (t *AbandonTaskTool) GetEnforcerProfile() *framework.EnforcerProfile {
 		framework.WithPII(false),
 		framework.WithIdempotent(false),
 	)
+}
+
+func (t *AbandonTaskTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
 }

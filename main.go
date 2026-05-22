@@ -168,6 +168,21 @@ func (s *Server) Start() error {
 }
 
 func main() {
+	// Check for --scan flag BEFORE config validation to enable scan-mode
+	scanMode := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--scan" || arg == "--scan-mode" {
+			scanMode = true
+			break
+		}
+	}
+
+	// If scan mode, create minimal server without Qdrant connection
+	if scanMode {
+		runScanMode()
+		return
+	}
+
 	server, err := NewServer()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to start qdrant-mcp: %v\n", err)
@@ -181,4 +196,38 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// runScanMode creates a minimal server for scan-mode (no Qdrant connection needed)
+func runScanMode() {
+	dummyCfg := &config.Config{
+		VectorSize:       768,
+		DedupThreshold: 0.95,
+	}
+
+	dummyEmbed := &minimalEmbedProvider{}
+
+	s := &Server{
+		Server: framework.NewServerWithConfig(&framework.Config{
+			Name:    "qdrant-mcp",
+			Version: "0.3.0",
+		}),
+	}
+
+	s.registerTools(nil, dummyCfg, dummyEmbed)
+
+	s.Server.SetScanMode(true)
+	if err := s.Server.RunScanMode(); err != nil {
+		os.Exit(1)
+	}
+}
+
+type minimalEmbedProvider struct{}
+
+func (e *minimalEmbedProvider) Embed(ctx context.Context, text string) ([]float64, error) {
+	return nil, nil
+}
+
+func (e *minimalEmbedProvider) VectorSize() int {
+	return 768
 }

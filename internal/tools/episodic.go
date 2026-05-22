@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +21,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type LogEventTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -67,7 +67,7 @@ func (t *LogEventTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *LogEventTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *LogEventTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -134,11 +134,16 @@ func (t *LogEventTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *LogEventTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // RecallEventsTool — episodic memory read
 // ---------------------------------------------------------------------------
 
 type RecallEventsTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -193,7 +198,7 @@ func (t *RecallEventsTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *RecallEventsTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *RecallEventsTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	limit := 10
 	if l, ok := args["limit"].(float64); ok && l > 0 {
 		limit = int(l)
@@ -320,11 +325,16 @@ func (t *RecallEventsTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *RecallEventsTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // SummarisePeriodTool — episodic prose narrative (no LLM)
 // ---------------------------------------------------------------------------
 
 type SummarisePeriodTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -365,7 +375,7 @@ func (t *SummarisePeriodTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *SummarisePeriodTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *SummarisePeriodTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	sinceStr, _ := args["since"].(string)
 	if sinceStr == "" {
 		return framework.TextResult(""), errors.New("since is required")
@@ -469,6 +479,10 @@ func (t *SummarisePeriodTool) GetEnforcerProfile() *framework.EnforcerProfile {
 		framework.WithPII(true),
 		framework.WithIdempotent(true),
 	)
+}
+
+func (t *SummarisePeriodTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
 }
 
 // ---------------------------------------------------------------------------

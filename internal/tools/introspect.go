@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -17,6 +16,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type WhatDoIKnowTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -44,7 +44,7 @@ func (t *WhatDoIKnowTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *WhatDoIKnowTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *WhatDoIKnowTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	memTypes := []string{"semantic", "episodic", "procedural", "task", "cache"}
 
 	counts := make(map[string]int64)
@@ -174,11 +174,16 @@ func (t *WhatDoIKnowTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *WhatDoIKnowTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // MemoryStatsTool — raw collection diagnostics
 // ---------------------------------------------------------------------------
 
 type MemoryStatsTool struct {
+	framework.BaseTool
 	client QdrantClient
 	cfg    readonly.ReadOnlyChecker
 }
@@ -200,7 +205,7 @@ func (t *MemoryStatsTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *MemoryStatsTool) Handle(ctx context.Context, _ map[string]interface{}) (framework.ToolResult, error) {
+func (t *MemoryStatsTool) Handle(ctx framework.CallContext, _ map[string]interface{}) (framework.ToolResult, error) {
 	memTypes := []string{"semantic", "episodic", "procedural", "task", "cache"}
 
 	byType := make(map[string]int64)
@@ -251,4 +256,8 @@ func (t *MemoryStatsTool) GetEnforcerProfile() *framework.EnforcerProfile {
 		framework.WithPII(false),
 		framework.WithIdempotent(true),
 	)
+}
+
+func (t *MemoryStatsTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
 }

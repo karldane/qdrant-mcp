@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -22,6 +21,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type RememberTool struct {
+	framework.BaseTool
 	client         QdrantClient
 	cfg            readonly.ReadOnlyChecker
 	embedder       embed.Provider
@@ -72,7 +72,7 @@ func (t *RememberTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *RememberTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *RememberTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -158,11 +158,16 @@ func (t *RememberTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *RememberTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // RecallTool — semantic memory read
 // ---------------------------------------------------------------------------
 
 type RecallTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -211,7 +216,7 @@ func (t *RecallTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *RecallTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *RecallTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	query, _ := args["query"].(string)
 	if query == "" {
 		return framework.TextResult(""), errors.New("query is required")
@@ -323,11 +328,16 @@ func (t *RecallTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *RecallTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // ForgetTool — semantic memory delete
 // ---------------------------------------------------------------------------
 
 type ForgetTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -374,7 +384,7 @@ func (t *ForgetTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *ForgetTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *ForgetTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -462,11 +472,16 @@ func (t *ForgetTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *ForgetTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // ReflectTool — semantic memory synthesis
 // ---------------------------------------------------------------------------
 
 type ReflectTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -505,7 +520,7 @@ func (t *ReflectTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *ReflectTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *ReflectTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	topic, _ := args["topic"].(string)
 	if topic == "" {
 		return framework.TextResult(""), errors.New("topic is required")
@@ -580,6 +595,10 @@ func (t *ReflectTool) GetEnforcerProfile() *framework.EnforcerProfile {
 		framework.WithPII(true),
 		framework.WithIdempotent(true),
 	)
+}
+
+func (t *ReflectTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 
@@ -16,6 +15,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type CollectionInfoTool struct {
+	framework.BaseTool
 	client QdrantClient
 	cfg    readonly.ReadOnlyChecker
 }
@@ -37,7 +37,7 @@ func (t *CollectionInfoTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *CollectionInfoTool) Handle(ctx context.Context, _ map[string]interface{}) (framework.ToolResult, error) {
+func (t *CollectionInfoTool) Handle(ctx framework.CallContext, _ map[string]interface{}) (framework.ToolResult, error) {
 	info, err := t.client.CollectionInfo(ctx)
 	if err != nil {
 		return framework.TextResult(""), fmt.Errorf("collection_info: %v", err)
@@ -54,4 +54,8 @@ func (t *CollectionInfoTool) GetEnforcerProfile() *framework.EnforcerProfile {
 		framework.WithPII(false),
 		framework.WithIdempotent(true),
 	)
+}
+
+func (t *CollectionInfoTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
 }

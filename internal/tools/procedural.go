@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,6 +19,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type LearnProcedureTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -69,7 +69,7 @@ func (t *LearnProcedureTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *LearnProcedureTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *LearnProcedureTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -155,11 +155,16 @@ func (t *LearnProcedureTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *LearnProcedureTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // RecallProcedureTool — procedural memory read
 // ---------------------------------------------------------------------------
 
 type RecallProcedureTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -199,7 +204,7 @@ func (t *RecallProcedureTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *RecallProcedureTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *RecallProcedureTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	name, _ := args["name"].(string)
 	query, _ := args["query"].(string)
 	limit := 3
@@ -280,11 +285,16 @@ func (t *RecallProcedureTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *RecallProcedureTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // UpdateProcedureTool — procedural memory update
 // ---------------------------------------------------------------------------
 
 type UpdateProcedureTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -326,7 +336,7 @@ func (t *UpdateProcedureTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *UpdateProcedureTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *UpdateProcedureTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -426,4 +436,8 @@ func (t *UpdateProcedureTool) GetEnforcerProfile() *framework.EnforcerProfile {
 		framework.WithPII(false),
 		framework.WithIdempotent(false),
 	)
+}
+
+func (t *UpdateProcedureTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
 }

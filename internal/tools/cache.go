@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -21,6 +20,7 @@ import (
 // ---------------------------------------------------------------------------
 
 type StoreResultTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -71,7 +71,7 @@ func (t *StoreResultTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *StoreResultTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *StoreResultTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -179,11 +179,16 @@ func (t *StoreResultTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *StoreResultTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // LookupResultTool — result cache read
 // ---------------------------------------------------------------------------
 
 type LookupResultTool struct {
+	framework.BaseTool
 	client   QdrantClient
 	cfg      readonly.ReadOnlyChecker
 	embedder embed.Provider
@@ -224,7 +229,7 @@ func (t *LookupResultTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *LookupResultTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *LookupResultTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	key, _ := args["key"].(string)
 	query, _ := args["query"].(string)
 	minScore := 0.85
@@ -310,11 +315,16 @@ func (t *LookupResultTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *LookupResultTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 // ---------------------------------------------------------------------------
 // InvalidateResultTool — result cache delete
 // ---------------------------------------------------------------------------
 
 type InvalidateResultTool struct {
+	framework.BaseTool
 	client QdrantClient
 	cfg    readonly.ReadOnlyChecker
 }
@@ -350,7 +360,7 @@ func (t *InvalidateResultTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *InvalidateResultTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *InvalidateResultTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -397,4 +407,8 @@ func (t *InvalidateResultTool) GetEnforcerProfile() *framework.EnforcerProfile {
 		framework.WithPII(false),
 		framework.WithIdempotent(false),
 	)
+}
+
+func (t *InvalidateResultTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
 }

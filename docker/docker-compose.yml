@@ -14,12 +14,12 @@ services:
       QDRANT__LOG_LEVEL: "INFO"
     volumes:
       - qdrant_storage:/qdrant/storage
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:6333/healthz"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      disable: true
 
   ollama:
     image: ollama/ollama:latest

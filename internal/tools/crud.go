@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 )
 
 type UpsertPointTool struct {
+	framework.BaseTool
 	client QdrantClient
 	cfg    readonly.ReadOnlyChecker
 }
@@ -50,7 +50,7 @@ func (t *UpsertPointTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *UpsertPointTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *UpsertPointTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -83,7 +83,12 @@ func (t *UpsertPointTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *UpsertPointTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 type SearchPointsTool struct {
+	framework.BaseTool
 	client QdrantClient
 	cfg    readonly.ReadOnlyChecker
 }
@@ -121,7 +126,7 @@ func (t *SearchPointsTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *SearchPointsTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *SearchPointsTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	var queryVector []float64
 	if v, ok := args["query_vector"].([]interface{}); ok {
 		queryVector = make([]float64, 0, len(v))
@@ -172,7 +177,12 @@ func (t *SearchPointsTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *SearchPointsTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 type ScrollPointsTool struct {
+	framework.BaseTool
 	client QdrantClient
 	cfg    readonly.ReadOnlyChecker
 }
@@ -208,7 +218,7 @@ func (t *ScrollPointsTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *ScrollPointsTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *ScrollPointsTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	limit := 20
 	if l, ok := args["limit"].(float64); ok {
 		limit = int(l)
@@ -249,7 +259,12 @@ func (t *ScrollPointsTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *ScrollPointsTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 type GetPointTool struct {
+	framework.BaseTool
 	client QdrantClient
 	cfg    readonly.ReadOnlyChecker
 }
@@ -277,7 +292,7 @@ func (t *GetPointTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *GetPointTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *GetPointTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	id, _ := args["id"].(string)
 
 	result, err := t.client.GetPoint(ctx, id)
@@ -304,7 +319,12 @@ func (t *GetPointTool) GetEnforcerProfile() *framework.EnforcerProfile {
 	)
 }
 
+func (t *GetPointTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
+}
+
 type DeletePointsTool struct {
+	framework.BaseTool
 	client QdrantClient
 	cfg    readonly.ReadOnlyChecker
 }
@@ -336,7 +356,7 @@ func (t *DeletePointsTool) Schema() mcp.ToolInputSchema {
 	}
 }
 
-func (t *DeletePointsTool) Handle(ctx context.Context, args map[string]interface{}) (framework.ToolResult, error) {
+func (t *DeletePointsTool) Handle(ctx framework.CallContext, args map[string]interface{}) (framework.ToolResult, error) {
 	if err := readonly.EnforceWrite(t.cfg); err != nil {
 		return framework.TextResult(""), err
 	}
@@ -370,4 +390,8 @@ func (t *DeletePointsTool) GetEnforcerProfile() *framework.EnforcerProfile {
 		framework.WithPII(true),
 		framework.WithIdempotent(true),
 	)
+}
+
+func (t *DeletePointsTool) EnforcerProfile(args map[string]interface{}) *framework.EnforcerProfile {
+	return t.GetEnforcerProfile()
 }
