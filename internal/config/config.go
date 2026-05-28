@@ -106,49 +106,57 @@ func Load() *Config {
 }
 
 func MergeCLIFlags(cfg *Config) *Config {
-	lookup := func(name string) string {
-		if f := flag.Lookup(name); f != nil {
-			return f.Value.String()
-		}
-		return ""
+	// flag.Visit only fires for flags explicitly set by the user,
+	// unlike flag.Lookup which also returns defaults and would
+	// clobber env-var-sourced values.
+	flagValueIfSet := func(name string) (string, bool) {
+		var val string
+		var set bool
+		flag.Visit(func(f *flag.Flag) {
+			if f.Name == name {
+				val = f.Value.String()
+				set = true
+			}
+		})
+		return val, set
 	}
 
-	if v := lookup("admin-url"); v != "" {
+	if v, ok := flagValueIfSet("admin-url"); ok && v != "" {
 		cfg.AdminURL = v
 	}
-	if v := lookup("admin-key"); v != "" {
+	if v, ok := flagValueIfSet("admin-key"); ok && v != "" {
 		cfg.AdminKey = v
 	}
-	if v := lookup("username"); v != "" {
+	if v, ok := flagValueIfSet("username"); ok && v != "" {
 		cfg.Username = v
 	}
-	if v := lookup("collection"); v != "" {
+	if v, ok := flagValueIfSet("collection"); ok && v != "" {
 		cfg.Collection = v
 	}
-	if v := lookup("vector-size"); v != "" {
+	if v, ok := flagValueIfSet("vector-size"); ok {
 		if size, err := strconv.Atoi(v); err == nil && size > 0 {
 			cfg.VectorSize = size
 		}
 	}
-	if v := lookup("timeout"); v != "" {
+	if v, ok := flagValueIfSet("timeout"); ok {
 		if secs, err := strconv.Atoi(v); err == nil && secs > 0 {
 			cfg.TimeoutSeconds = secs
 		}
 	}
-	if v := lookup("embedding-provider"); v != "" {
+	if v, ok := flagValueIfSet("embedding-provider"); ok {
 		cfg.EmbeddingProvider = v
 	}
-	if v := lookup("embedding-model"); v != "" {
+	if v, ok := flagValueIfSet("embedding-model"); ok {
 		cfg.EmbeddingModel = v
 	}
-	if v := lookup("ollama-url"); v != "" {
+	if v, ok := flagValueIfSet("ollama-url"); ok {
 		cfg.OllamaURL = v
 	}
-	if f := flag.Lookup("readonly"); f != nil {
-		cfg.isReadOnly = f.Value.String() == "true"
+	if v, ok := flagValueIfSet("readonly"); ok {
+		cfg.isReadOnly = v == "true"
 	}
-	if f := flag.Lookup("log-json"); f != nil {
-		cfg.LogJSON = f.Value.String() == "true"
+	if v, ok := flagValueIfSet("log-json"); ok {
+		cfg.LogJSON = v == "true"
 	}
 	return cfg
 }

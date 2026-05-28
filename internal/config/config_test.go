@@ -74,12 +74,22 @@ func TestMergeCLIFlags_NoOpWhenFlagsEmpty(t *testing.T) {
 	cfg := Load()
 	cfg.AdminURL = "http://original:6334"
 	cfg.Collection = "original-collection"
+	cfg.OllamaURL = "http://ollama.mcp-bridge-infra.svc.cluster.local:11434"
+	cfg.EmbeddingProvider = "openai"
+	cfg.EmbeddingModel = "text-embedding-3-large"
+	cfg.OpenAIKey = "sk-override"
+	cfg.OpenAIBaseURL = "https://proxy.example.com/v1"
 
 	out := MergeCLIFlags(cfg)
 
 	assert.Same(t, cfg, out)
 	assert.Equal(t, "http://original:6334", out.AdminURL)
 	assert.Equal(t, "original-collection", out.Collection)
+	assert.Equal(t, "http://ollama.mcp-bridge-infra.svc.cluster.local:11434", out.OllamaURL, "should NOT be clobbered by flag default")
+	assert.Equal(t, "openai", out.EmbeddingProvider, "should NOT be clobbered by flag default")
+	assert.Equal(t, "text-embedding-3-large", out.EmbeddingModel)
+	assert.Equal(t, "sk-override", out.OpenAIKey)
+	assert.Equal(t, "https://proxy.example.com/v1", out.OpenAIBaseURL)
 }
 
 func TestMergeCLIFlags_ReadOnlyFlag(t *testing.T) {
